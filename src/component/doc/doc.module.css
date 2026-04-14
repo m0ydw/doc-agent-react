@@ -1,0 +1,29 @@
+.viewerShell {
+  min-height: min(78vh, 980px);
+  height: auto;
+  width: 100%;
+  overflow: visible;
+  border-radius: 16px;
+  border: 1px solid #d7dde8;
+  background: #ffffff;
+  box-shadow: 0 20px 45px -30px rgba(16, 24, 40, 0.45),
+    0 8px 18px -14px rgba(16, 24, 40, 0.35);
+  isolation: isolate;
+}
+
+.editorRoot {
+  min-height: inherit;
+  height: auto;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.editorRoot :global(.superdoc-wrapper) {
+  width: 100%;
+}
+
+.editorRoot :global(.superdoc-editor-container) {
+  min-height: min(78vh, 980px);
+  height: auto;
+}
