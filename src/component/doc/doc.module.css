@@ -1,47 +1,62 @@
-.viewerShell {
-  min-height: min(78vh, 980px);
-  height: auto;
-  width: 100%;
-  overflow: visible;
-  border-radius: 16px;
-  border: 1px solid #d7dde8;
-  background: #ffffff;
-  box-shadow: 0 20px 45px -30px rgba(16, 24, 40, 0.45),
-    0 8px 18px -14px rgba(16, 24, 40, 0.35);
-  isolation: isolate;
-  margin: 0 auto;
-}
-
-.editorRoot {
-  min-height: inherit;
-  height: auto;
-  width: 100%;
-  display: block;
-}
-
-/* 🔥 关键：让 wrapper 完全由内容高度撑开 */
-.editorRoot :global(.superdoc-wrapper) {
-  width: 100%;
-  height: auto !important; /* 不固定高度 */
-  min-height: 0 !important; /* 清除最小高度限制 */
-  max-height: none !important; /* 无最大高度 */
-  overflow: visible !important;
-  display: block;
-}
-
-/* 工具栏：正常布局，不限制 */
-.editorRoot :global(.superdoc-toolbar-container) {
-  position: relative;
-  left: 0;
-  overflow: visible;
-}
-
-/* 内容区保持原样 */
-.editorRoot :global(.superdoc-editor-container) {
-  width: 100%;
-  max-width: 900px;
-  min-height: min(78vh, 980px);
-  height: auto;
-  margin: 0 auto;
+.page {
+  min-height: 100vh;
+  padding: 28px 20px;
+  background: linear-gradient(180deg, #f5f8ff 0%, #eef2f7 100%);
   box-sizing: border-box;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.panel {
+  border-radius: 20px;
+  background: white;
+  padding: 22px;
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.1);
+}
+
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.tip {
+  margin: 0;
+  color: #666;
+  font-size: 14px;
+}
+
+.uploadButton {
+  border: 0;
+  border-radius: 12px;
+  padding: 10px 18px;
+  color: white;
+  background: #165dff;
+  cursor: pointer;
+}
+
+.hiddenInput {
+  display: none;
+}
+
+.placeholder {
+  border-radius: 14px;
+  border: 1px dashed #ccc;
+  min-height: 60vh;
+  display: grid;
+  place-items: center;
+  color: #666;
+}
+:global(.superdoc__layers.layers) {
+  margin: 0 auto;
 }
