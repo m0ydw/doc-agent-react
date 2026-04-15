@@ -9,21 +9,39 @@
   box-shadow: 0 20px 45px -30px rgba(16, 24, 40, 0.45),
     0 8px 18px -14px rgba(16, 24, 40, 0.35);
   isolation: isolate;
+  margin: 0 auto;
 }
 
 .editorRoot {
   min-height: inherit;
   height: auto;
   width: 100%;
-  display: flex;
-  justify-content: center;
+  display: block;
 }
 
+/* 🔥 关键：让 wrapper 完全由内容高度撑开 */
 .editorRoot :global(.superdoc-wrapper) {
   width: 100%;
+  height: auto !important; /* 不固定高度 */
+  min-height: 0 !important; /* 清除最小高度限制 */
+  max-height: none !important; /* 无最大高度 */
+  overflow: visible !important;
+  display: block;
 }
 
+/* 工具栏：正常布局，不限制 */
+.editorRoot :global(.superdoc-toolbar-container) {
+  position: relative;
+  left: 0;
+  overflow: visible;
+}
+
+/* 内容区保持原样 */
 .editorRoot :global(.superdoc-editor-container) {
+  width: 100%;
+  max-width: 900px;
   min-height: min(78vh, 980px);
   height: auto;
+  margin: 0 auto;
+  box-sizing: border-box;
 }
