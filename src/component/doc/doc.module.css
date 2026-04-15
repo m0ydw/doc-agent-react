@@ -60,3 +60,7 @@
 :global(.superdoc__layers.layers) {
   margin: 0 auto;
 }
+:global(.superdoc-toolbar-container) {
+  position: relative;
+  left: -30px;
+}
