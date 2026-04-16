@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { DocumentList, DocumentViewer } from "@/src/component/index";
-import { uploadDocuments, getDocumentList, deleteDocument } from "@/src/api/docApi";
+import { fileStore } from "@/src/store/fileStore";
 import type { DocumentInfo } from "@/src/api/docApi";
 import styles from "./showDoc.module.css";
 
@@ -10,12 +10,19 @@ type FileUploadProps = {
 
 export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [localFiles, setLocalFiles] = useState<Map<string, Blob>>(new Map());
   const [currentFileName, setCurrentFileName] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
   const [uploadStatus, setUploadStatus] = useState("");
   const [showList, setShowList] = useState(false);
   const [docKey, setDocKey] = useState(0);
+  const [fileList, setFileList] = useState<DocumentInfo[]>(fileStore.getFileList());
+
+  useEffect(() => {
+    const unsubscribe = fileStore.subscribe(() => {
+      setFileList(fileStore.getFileList());
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     const eventSource = new EventSource("http://localhost:3000/api/docs/events");
@@ -26,11 +33,7 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
         if (data.fileId && data.fileName) {
           const res = await fetch(`http://localhost:3000/api/docs/${data.fileId}`);
           const blob = await res.blob();
-          setLocalFiles(prev => {
-            const newMap = new Map(prev);
-            newMap.set(data.fileName, blob);
-            return newMap;
-          });
+          fileStore.updateFileFromServer(data.fileName, blob);
           if (currentFileName === data.fileName) {
             setDocKey(prev => prev + 1);
           }
@@ -47,37 +50,6 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
 
     return () => eventSource.close();
   }, [currentFileName]);
-
-  const fetchDocumentList = useCallback(async () => {
-    try {
-      const response = await getDocumentList();
-      if (response.success) {
-        setShowList(true);
-      }
-    } catch (error) {
-      console.error("获取文件列表失败:", error);
-      setErrorMessage("获取文件列表失败");
-    }
-  }, []);
-
-  const uploadSingleFile = useCallback(async (file: File): Promise<boolean> => {
-    try {
-      setUploadStatus(`正在上传: ${file.name}`);
-      const response = await uploadDocuments([file]);
-      if (response.success) {
-        setUploadStatus(`上传成功: ${file.name}`);
-        await fetchDocumentList();
-        return true;
-      } else {
-        setErrorMessage(response.message || `上传失败: ${file.name}`);
-        return false;
-      }
-    } catch (error) {
-      console.error("上传失败:", error);
-      setErrorMessage(`上传失败: ${file.name}`);
-      return false;
-    }
-  }, [fetchDocumentList]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -104,65 +76,49 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
       return;
     }
 
-    if (localFiles.has(fileName)) {
+    if (fileStore.hasFile(fileName)) {
       setErrorMessage(`文件 "${fileName}" 已存在，禁止重复上传`);
       e.target.value = "";
       return;
     }
 
-    setLocalFiles(prev => {
-      const newMap = new Map(prev);
-      newMap.set(fileName, file);
-      return newMap;
-    });
+    fileStore.addFile(fileName, file);
     setCurrentFileName(fileName);
     setErrorMessage("");
     e.target.value = "";
 
-    await uploadSingleFile(file);
+    setUploadStatus(`正在上传: ${fileName}`);
+    const success = await fileStore.uploadFile(file);
+    if (success) {
+      setUploadStatus(`上传成功: ${fileName}`);
+    } else {
+      setUploadStatus(`上传失败: ${fileName}`);
+    }
   };
 
   const handleDeleteDocument = useCallback(async (id: string, fileName: string) => {
-    try {
-      await deleteDocument(id);
-      setLocalFiles(prev => {
-        const newMap = new Map(prev);
-        newMap.delete(fileName);
-        return newMap;
-      });
+    const success = await fileStore.deleteFile(id, fileName);
+    if (success) {
       if (currentFileName === fileName) {
         setCurrentFileName(null);
       }
-      await fetchDocumentList();
       setUploadStatus("文件已删除");
-    } catch (error) {
-      console.error("删除失败:", error);
+    } else {
       setErrorMessage("删除失败");
     }
-  }, [currentFileName, fetchDocumentList]);
+  }, [currentFileName]);
 
-  const handleSelectDocument = useCallback(async (doc: DocumentInfo) => {
-    setUploadStatus(`加载中: ${doc.originalName}...`);
-    try {
-      const res = await fetch(`http://localhost:3000/api/docs/${doc.id}`);
-      const blob = await res.blob();
-      setLocalFiles(prev => {
-        const newMap = new Map(prev);
-        newMap.set(doc.originalName, blob);
-        return newMap;
-      });
+  const handleSelectDocument = useCallback((doc: DocumentInfo) => {
+    if (fileStore.hasFile(doc.originalName)) {
       setCurrentFileName(doc.originalName);
       setDocKey(prev => prev + 1);
-      setShowList(false);
-    } catch (error) {
-      console.error("加载文件失败:", error);
-      setErrorMessage("加载文件失败");
     }
+    setShowList(false);
   }, []);
 
   const handleDownload = () => {
     if (currentFileName) {
-      const blob = localFiles.get(currentFileName);
+      const blob = fileStore.getFile(currentFileName);
       if (blob) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -191,7 +147,7 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
               <button onClick={() => fileInputRef.current?.click()} className={styles.uploadButton}>
                 选择文件
               </button>
-              <button onClick={fetchDocumentList} className={styles.uploadButton}>
+              <button onClick={() => setShowList(true)} className={styles.uploadButton}>
                 文件列表
               </button>
             </div>
@@ -210,16 +166,17 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
 
           {showList && (
             <DocumentList
+              documents={fileList}
               onSelectDocument={handleSelectDocument}
               onDeleteDocument={handleDeleteDocument}
               onClose={() => setShowList(false)}
             />
           )}
 
-          {currentFileName && localFiles.get(currentFileName) ? (
+          {currentFileName && fileStore.getFile(currentFileName) ? (
             <DocumentViewer
               fileName={currentFileName}
-              documentData={localFiles.get(currentFileName)!}
+              documentData={fileStore.getFile(currentFileName)!}
               docKey={docKey}
               onDownload={handleDownload}
               onClear={handleClear}

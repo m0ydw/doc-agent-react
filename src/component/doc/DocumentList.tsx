@@ -1,44 +1,19 @@
-import { useState, useEffect } from "react";
-import { getDocumentList } from "@/src/api/docApi";
 import type { DocumentInfo } from "@/src/api/docApi";
 import styles from "./DocumentList.module.css";
 
 interface DocumentListProps {
+  documents: DocumentInfo[];
   onSelectDocument: (doc: DocumentInfo) => void;
   onDeleteDocument: (id: string, fileName: string) => void;
   onClose: () => void;
 }
 
 export default function DocumentList({
+  documents,
   onSelectDocument,
   onDeleteDocument,
   onClose,
 }: DocumentListProps) {
-  const [documents, setDocuments] = useState<DocumentInfo[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    fetchDocuments();
-  }, []);
-
-  const fetchDocuments = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const response = await getDocumentList();
-      if (response.success) {
-        setDocuments(response.documents);
-      } else {
-        setError("获取文件列表失败");
-      }
-    } catch {
-      setError("获取文件列表失败");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleDelete = (doc: DocumentInfo) => {
     if (confirm(`确定要删除 "${doc.originalName}" 吗?`)) {
       onDeleteDocument(doc.id, doc.originalName);
@@ -54,11 +29,7 @@ export default function DocumentList({
         </button>
       </div>
 
-      {loading ? (
-        <p className={styles.message}>加载中...</p>
-      ) : error ? (
-        <p className={styles.error}>{error}</p>
-      ) : documents.length === 0 ? (
+      {documents.length === 0 ? (
         <p className={styles.message}>暂无文件</p>
       ) : (
         <ul className={styles.list}>
