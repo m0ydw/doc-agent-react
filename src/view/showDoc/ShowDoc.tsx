@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { DocumentList, DocumentViewer } from "@/component";
 import { fileStore } from "@/store/fileStore";
-import { cleanupDocuments } from "@/api/docApi";
+import { cleanupDocuments, getDocumentList } from "@/api/docApi";
 import type { DocumentInfo } from "@/api/docApi";
 import styles from "./showDoc.module.css";
 
@@ -29,6 +29,18 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
   }, []);
 
   useEffect(() => {
+    getDocumentList().then((res) => {
+      if (res.success) {
+        res.documents.forEach((doc) => {
+          fileStore.setUploadedId(doc.originalName, doc.id);
+        });
+        fileStore.setServerFileList(res.documents);
+        setFileList(res.documents);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
     const eventSource = new EventSource(
       "http://localhost:3000/api/docs/events"
     );
@@ -49,6 +61,26 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
         }
       } catch (error) {
         console.error("处理文件更新失败:", error);
+      }
+    });
+
+    eventSource.addEventListener("file_deleted", async (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.fileId && data.fileName) {
+          fileStore.removeFileById(data.fileId);
+          if (currentFileName === data.fileName) {
+            setCurrentFileName(null);
+          }
+          const res = await getDocumentList();
+          if (res.success) {
+            fileStore.setServerFileList(res.documents);
+            setFileList(res.documents);
+          }
+          setUploadStatus(`文件已删除: ${data.fileName}`);
+        }
+      } catch (error) {
+        console.error("处理文件删除失败:", error);
       }
     });
 

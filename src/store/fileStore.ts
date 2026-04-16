@@ -1,4 +1,4 @@
-import { uploadDocuments, deleteDocument } from "@/api/docApi";
+import { uploadDocuments, deleteDocument, getDocumentList } from "@/api/docApi";
 import type { DocumentInfo } from "@/api/docApi";
 
 type FileChangeCallback = (files: Map<string, Blob>, currentFileName: string | null) => void;
@@ -6,13 +6,38 @@ type FileChangeCallback = (files: Map<string, Blob>, currentFileName: string | n
 class FileStore {
   private files: Map<string, Blob> = new Map();
   private uploadedFiles: Map<string, string> = new Map();
+  private uploadedFileIds: Map<string, string> = new Map();
+  private serverFileList: DocumentInfo[] = [];
   private listeners: Set<FileChangeCallback> = new Set();
 
   getFiles(): Map<string, Blob> {
     return this.files;
   }
 
+  async loadServerFileList(): Promise<DocumentInfo[]> {
+    try {
+      const response = await getDocumentList();
+      if (response.success) {
+        response.documents.forEach((doc) => {
+          this.uploadedFileIds.set(doc.id, doc.originalName);
+        });
+        return response.documents;
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }
+
+  setServerFileList(list: DocumentInfo[]): void {
+    this.serverFileList = list;
+    this.notify();
+  }
+
   getFileList(): DocumentInfo[] {
+    if (this.serverFileList.length > 0) {
+      return this.serverFileList;
+    }
     return Array.from(this.files.entries()).map(([name, blob], index) => ({
       id: `local-${index}`,
       originalName: name,
@@ -22,6 +47,18 @@ class FileStore {
       uploadedAt: new Date().toISOString(),
       filePath: "",
     }));
+  }
+
+  removeFileById(id: string): boolean {
+    const fileName = this.uploadedFileIds.get(id);
+    if (fileName) {
+      this.uploadedFileIds.delete(id);
+      this.uploadedFiles.delete(fileName);
+      this.files.delete(fileName);
+      this.notify();
+      return true;
+    }
+    return false;
   }
 
   getUploadedFileIds(): string[] {
@@ -49,6 +86,7 @@ class FileStore {
 
   setUploadedId(fileName: string, id: string): void {
     this.uploadedFiles.set(fileName, id);
+    this.uploadedFileIds.set(id, fileName);
   }
 
   subscribe(callback: FileChangeCallback): () => void {
@@ -79,6 +117,7 @@ class FileStore {
     }
     try {
       await deleteDocument(id);
+      this.uploadedFiles.delete(fileName);
       this.removeFile(fileName);
       return true;
     } catch {
