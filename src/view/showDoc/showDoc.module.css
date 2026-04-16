@@ -18,3 +18,45 @@
 .hiddenInput {
   display: none;
 }
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.title {
+  margin: 0 0 4px 0;
+  font-size: 20px;
+  color: #333;
+}
+.tip {
+  margin: 0;
+  font-size: 14px;
+  color: #666;
+}
+.errorTip {
+  margin: 8px 0;
+  font-size: 14px;
+  color: #dc3545;
+}
+.placeholder {
+  padding: 60px 20px;
+  text-align: center;
+  color: #999;
+  background-color: #f9f9f9;
+  border-radius: 8px;
+}
+.uploadButton {
+  padding: 8px 16px;
+  background-color: #0066cc;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.uploadButton:hover {
+  background-color: #0052a3;
+}
