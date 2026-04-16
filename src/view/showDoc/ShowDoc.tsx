@@ -61,11 +61,10 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
     const isValid =
       file.type ===
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-      fileName.toLowerCase().endsWith(".docx") ||
-      fileName.toLowerCase().endsWith(".doc");
+      fileName.toLowerCase().endsWith(".docx");
 
     if (!isValid) {
-      setErrorMessage("请选择 .doc 或 .docx 文件");
+      setErrorMessage("请选择 .docx 文件");
       e.target.value = "";
       return;
     }
@@ -141,7 +140,7 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
           <div className={styles.toolbar}>
             <div>
               <h1 className={styles.title}>DOCX 预览</h1>
-              <p className={styles.tip}>仅支持 .doc 和 .docx 文件</p>
+              <p className={styles.tip}>仅支持 .docx 文件</p>
             </div>
             <div style={{ display: "flex", gap: "8px" }}>
               <button onClick={() => fileInputRef.current?.click()} className={styles.uploadButton}>
