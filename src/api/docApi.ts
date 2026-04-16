@@ -29,7 +29,8 @@ export const uploadDocuments = async (
 ): Promise<UploadResponse> => {
   const formData = new FormData();
   files.forEach((file) => {
-    formData.append("files", file);
+    const safeName = encodeURIComponent(file.name);
+    formData.append("files", file, safeName);
   });
 
   const response = await axios.post<UploadResponse>(
