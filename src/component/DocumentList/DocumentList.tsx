@@ -1,4 +1,5 @@
-import type { DocumentInfo } from "@/src/api/docApi";
+import React from "react";
+import type { DocumentInfo } from "@/api/docApi";
 import styles from "./DocumentList.module.css";
 
 interface DocumentListProps {

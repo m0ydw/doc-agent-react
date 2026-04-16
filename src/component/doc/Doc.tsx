@@ -2,7 +2,7 @@ import { SuperDocEditor } from "@superdoc-dev/react";
 import { useRef } from "react";
 import type { SuperDocInstance } from "@superdoc-dev/react";
 import "@superdoc-dev/react/style.css";
-import styles from "./doc.module.css";
+import styles from "./Doc.module.css";
 
 interface DocProps {
   documentData: Blob | null;
@@ -13,7 +13,7 @@ interface DocProps {
   zoomPercent?: number;
 }
 
-function Doc({
+export default function Doc({
   documentData,
   onLoadError,
   onReadyStateChange,
@@ -53,7 +53,6 @@ function Doc({
             trackChanges={{ visible: false }}
             onReady={(event) => {
               superdocRef.current = event.superdoc;
-              // Force a deterministic layout baseline for pagination.
               event.superdoc.setZoom(zoomPercent);
               event.superdoc.setTrackedChangesPreferences({
                 mode: "final",
@@ -89,5 +88,3 @@ function Doc({
     </div>
   );
 }
-
-export default Doc;

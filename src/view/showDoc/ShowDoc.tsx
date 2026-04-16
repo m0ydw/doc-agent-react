@@ -1,7 +1,8 @@
 import { useRef, useState, useCallback, useEffect } from "react";
-import { DocumentList, DocumentViewer } from "@/src/component/index";
-import { fileStore } from "@/src/store/fileStore";
-import type { DocumentInfo } from "@/src/api/docApi";
+import { DocumentList, DocumentViewer } from "@/component";
+import { fileStore } from "@/store/fileStore";
+import { cleanupDocuments } from "@/api/docApi";
+import type { DocumentInfo } from "@/api/docApi";
 import styles from "./showDoc.module.css";
 
 type FileUploadProps = {
@@ -15,7 +16,10 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
   const [uploadStatus, setUploadStatus] = useState("");
   const [showList, setShowList] = useState(false);
   const [docKey, setDocKey] = useState(0);
-  const [fileList, setFileList] = useState<DocumentInfo[]>(fileStore.getFileList());
+  const [fileList, setFileList] = useState<DocumentInfo[]>(
+    fileStore.getFileList()
+  );
+  const uploadedFileIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const unsubscribe = fileStore.subscribe(() => {
@@ -25,17 +29,21 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
   }, []);
 
   useEffect(() => {
-    const eventSource = new EventSource("http://localhost:3000/api/docs/events");
+    const eventSource = new EventSource(
+      "http://localhost:3000/api/docs/events"
+    );
 
     eventSource.addEventListener("file_updated", async (e) => {
       try {
         const data = JSON.parse(e.data);
         if (data.fileId && data.fileName) {
-          const res = await fetch(`http://localhost:3000/api/docs/${data.fileId}`);
+          const res = await fetch(
+            `http://localhost:3000/api/docs/${data.fileId}`
+          );
           const blob = await res.blob();
           fileStore.updateFileFromServer(data.fileName, blob);
           if (currentFileName === data.fileName) {
-            setDocKey(prev => prev + 1);
+            setDocKey((prev) => prev + 1);
           }
           setUploadStatus(`文件已更新: ${data.fileName}`);
         }
@@ -50,6 +58,18 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
 
     return () => eventSource.close();
   }, [currentFileName]);
+
+  useEffect(() => {
+    const handleBeforeUnload = async () => {
+      const keepIds = Array.from(uploadedFileIdsRef.current);
+      if (keepIds.length > 0) {
+        await cleanupDocuments(keepIds);
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -87,30 +107,34 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
     e.target.value = "";
 
     setUploadStatus(`正在上传: ${fileName}`);
-    const success = await fileStore.uploadFile(file);
-    if (success) {
+    const result = await fileStore.uploadFile(file);
+    if (result.success && result.fileId) {
+      uploadedFileIdsRef.current.add(result.fileId);
       setUploadStatus(`上传成功: ${fileName}`);
     } else {
       setUploadStatus(`上传失败: ${fileName}`);
     }
   };
 
-  const handleDeleteDocument = useCallback(async (id: string, fileName: string) => {
-    const success = await fileStore.deleteFile(id, fileName);
-    if (success) {
-      if (currentFileName === fileName) {
-        setCurrentFileName(null);
+  const handleDeleteDocument = useCallback(
+    async (id: string, fileName: string) => {
+      const success = await fileStore.deleteFile(id, fileName);
+      if (success) {
+        if (currentFileName === fileName) {
+          setCurrentFileName(null);
+        }
+        setUploadStatus("文件已删除");
+      } else {
+        setErrorMessage("删除失败");
       }
-      setUploadStatus("文件已删除");
-    } else {
-      setErrorMessage("删除失败");
-    }
-  }, [currentFileName]);
+    },
+    [currentFileName]
+  );
 
   const handleSelectDocument = useCallback((doc: DocumentInfo) => {
     if (fileStore.hasFile(doc.originalName)) {
       setCurrentFileName(doc.originalName);
-      setDocKey(prev => prev + 1);
+      setDocKey((prev) => prev + 1);
     }
     setShowList(false);
   }, []);
@@ -143,10 +167,16 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
               <p className={styles.tip}>仅支持 .docx 文件</p>
             </div>
             <div style={{ display: "flex", gap: "8px" }}>
-              <button onClick={() => fileInputRef.current?.click()} className={styles.uploadButton}>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className={styles.uploadButton}
+              >
                 选择文件
               </button>
-              <button onClick={() => setShowList(true)} className={styles.uploadButton}>
+              <button
+                onClick={() => setShowList(true)}
+                className={styles.uploadButton}
+              >
                 文件列表
               </button>
             </div>

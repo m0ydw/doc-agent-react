@@ -67,3 +67,10 @@ export const deleteDocument = async (
   const response = await axios.delete(`${API_BASE_URL}/${id}`);
   return response.data;
 };
+
+export const cleanupDocuments = async (
+  keepIds: string[]
+): Promise<{ success: boolean; message: string; deleted: number }> => {
+  const response = await axios.post(`${API_BASE_URL}/cleanup`, { keepIds });
+  return response.data;
+};

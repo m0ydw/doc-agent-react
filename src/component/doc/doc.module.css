@@ -1,66 +1,17 @@
-.page {
-  min-height: 100vh;
-  padding: 28px 20px;
-  background: linear-gradient(180deg, #f5f8ff 0%, #eef2f7 100%);
-  box-sizing: border-box;
+.viewerShell {
+  width: 100%;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
 }
 
-.container {
-  max-width: 1200px;
-  margin: 0 auto;
+.editorRoot {
+  width: 100%;
+  height: 100%;
 }
-
-.panel {
-  border-radius: 20px;
-  background: white;
-  padding: 22px;
-  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.1);
-}
-
-.toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.title {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 700;
-}
-
-.tip {
-  margin: 0;
-  color: #666;
-  font-size: 14px;
-}
-
-.uploadButton {
-  border: 0;
-  border-radius: 12px;
-  padding: 10px 18px;
-  color: white;
-  background: #165dff;
-  cursor: pointer;
-}
-
-.hiddenInput {
-  display: none;
-}
-
-.placeholder {
-  border-radius: 14px;
-  border: 1px dashed #ccc;
-  min-height: 60vh;
-  display: grid;
-  place-items: center;
-  color: #666;
-}
+/* 
+:global(.superdoc-toolbar-container) {
+} */
+/* 选择工具栏部分 */
 :global(.superdoc__layers.layers) {
   margin: 0 auto;
-}
-:global(.superdoc-toolbar-container) {
-  position: relative;
-  left: -30px;
 }

@@ -1,10 +1,11 @@
-import { uploadDocuments, deleteDocument } from "@/src/api/docApi";
-import type { DocumentInfo } from "@/src/api/docApi";
+import { uploadDocuments, deleteDocument } from "@/api/docApi";
+import type { DocumentInfo } from "@/api/docApi";
 
 type FileChangeCallback = (files: Map<string, Blob>, currentFileName: string | null) => void;
 
 class FileStore {
   private files: Map<string, Blob> = new Map();
+  private uploadedFiles: Map<string, string> = new Map();
   private listeners: Set<FileChangeCallback> = new Set();
 
   getFiles(): Map<string, Blob> {
@@ -23,6 +24,10 @@ class FileStore {
     }));
   }
 
+  getUploadedFileIds(): string[] {
+    return Array.from(this.uploadedFiles.values());
+  }
+
   hasFile(fileName: string): boolean {
     return this.files.has(fileName);
   }
@@ -34,11 +39,16 @@ class FileStore {
 
   removeFile(fileName: string): void {
     this.files.delete(fileName);
+    this.uploadedFiles.delete(fileName);
     this.notify();
   }
 
   getFile(fileName: string): Blob | undefined {
     return this.files.get(fileName);
+  }
+
+  setUploadedId(fileName: string, id: string): void {
+    this.uploadedFiles.set(fileName, id);
   }
 
   subscribe(callback: FileChangeCallback): () => void {
@@ -50,12 +60,15 @@ class FileStore {
     this.listeners.forEach(cb => cb(this.files, null));
   }
 
-  async uploadFile(file: File): Promise<boolean> {
+  async uploadFile(file: File): Promise<{ success: boolean; fileId?: string }> {
     try {
-      await uploadDocuments([file]);
-      return true;
+      const response = await uploadDocuments([file]);
+      if (response.success && response.files.length > 0) {
+        return { success: true, fileId: response.files[0].id };
+      }
+      return { success: false };
     } catch {
-      return false;
+      return { success: false };
     }
   }
 
@@ -75,6 +88,12 @@ class FileStore {
 
   updateFileFromServer(fileName: string, blob: Blob): void {
     this.files.set(fileName, blob);
+    this.notify();
+  }
+
+  cleanupUploadedFiles(): void {
+    this.files.clear();
+    this.uploadedFiles.clear();
     this.notify();
   }
 }

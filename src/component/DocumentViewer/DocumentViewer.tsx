@@ -1,4 +1,5 @@
-import { Doc } from "@/src/component/index";
+import React from "react";
+import Doc from "../Doc/Doc";
 import styles from "./DocumentViewer.module.css";
 
 interface DocumentViewerProps {
