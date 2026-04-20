@@ -1,4 +1,3 @@
-import React from "react";
 import type { DocumentInfo } from "@/api/docApi";
 import styles from "./DocumentList.module.css";
 

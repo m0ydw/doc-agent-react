@@ -75,3 +75,53 @@ export const cleanupDocuments = async (
   const response = await axios.post(`${API_BASE_URL}/cleanup`, { keepIds });
   return response.data;
 };
+
+// ============ doc-operations API ============
+
+const DOC_OPS_BASE_URL = "http://localhost:3000/api/doc-operations";
+
+export type FindResult = {
+  success: boolean;
+  pattern: string;
+  count: number;
+  positions: Array<{ index: number; text: string; ref: string }>;
+};
+
+export const findText = async (
+  docId: string,
+  pattern: string
+): Promise<FindResult> => {
+  const response = await axios.post<FindResult>(`${DOC_OPS_BASE_URL}/find`, {
+    docId,
+    pattern,
+  });
+  return response.data;
+};
+
+export type ReplaceResult = {
+  success: boolean;
+  replaced?: number;
+  message?: string;
+};
+
+export const replaceText = async (
+  docId: string,
+  targetText: string,
+  replacement: string,
+  replaceAll: boolean = false
+): Promise<ReplaceResult> => {
+  const response = await axios.post<ReplaceResult>(`${DOC_OPS_BASE_URL}/replace`, {
+    docId,
+    targetText,
+    replacement,
+    replaceAll,
+  });
+  return response.data;
+};
+
+export const getDocumentText = async (
+  docId: string
+): Promise<{ success: boolean; text: string }> => {
+  const response = await axios.get(`${DOC_OPS_BASE_URL}/text/${docId}`);
+  return response.data;
+};

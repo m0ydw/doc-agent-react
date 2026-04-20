@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { DocumentList, DocumentViewer } from "@/component";
 import { fileStore } from "@/store/fileStore";
-import { cleanupDocuments, getDocumentList } from "@/api/docApi";
+import { cleanupDocuments, getDocumentList, findText, replaceText, getDocumentText } from "@/api/docApi";
 import type { DocumentInfo } from "@/api/docApi";
 import styles from "./showDoc.module.css";
 
@@ -20,6 +20,15 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
     fileStore.getFileList()
   );
   const uploadedFileIdsRef = useRef<Set<string>>(new Set());
+
+  // 查找替换测试相关状态
+  const [showFindReplace, setShowFindReplace] = useState(false);
+  const [findPattern, setFindPattern] = useState("");
+  const [replaceWith, setReplaceWith] = useState("");
+  const [findResult, setFindResult] = useState<{ success: boolean; count: number; positions: any[] } | null>(null);
+  const [replaceResult, setReplaceResult] = useState<{ success: boolean; replaced?: number; message?: string } | null>(null);
+  const [testStatus, setTestStatus] = useState("");
+  const [currentDocId, setCurrentDocId] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribe = fileStore.subscribe(() => {
@@ -189,6 +198,53 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
     setCurrentFileName(null);
   };
 
+  // 查找/替换测试函数
+  const handleFind = async () => {
+    if (!currentDocId || !findPattern.trim()) {
+      setTestStatus("请先选择文档并输入要查找的内容");
+      return;
+    }
+    setTestStatus("正在查找...");
+    try {
+      const result = await findText(currentDocId, findPattern);
+      setFindResult(result);
+      setReplaceResult(null);
+      setTestStatus(`找到 ${result.count} 处匹配`);
+    } catch (e: any) {
+      setTestStatus("查找失败: " + e.message);
+    }
+  };
+
+  const handleReplaceFirst = async () => {
+    if (!currentDocId || !findPattern.trim() || !replaceWith.trim()) {
+      setTestStatus("请输入查找内容和替换内容");
+      return;
+    }
+    setTestStatus("正在替换第一个匹配...");
+    try {
+      const result = await replaceText(currentDocId, findPattern, replaceWith, false);
+      setReplaceResult(result);
+      setTestStatus(result.success ? `替换完成 (1处)` : "替换失败: " + result.message);
+    } catch (e: any) {
+      setTestStatus("替换失败: " + e.message);
+    }
+  };
+
+  const handleReplaceAll = async () => {
+    if (!currentDocId || !findPattern.trim() || !replaceWith.trim()) {
+      setTestStatus("请输入查找内容和替换内容");
+      return;
+    }
+    setTestStatus("正在替换所有匹配...");
+    try {
+      const result = await replaceText(currentDocId, findPattern, replaceWith, true);
+      setReplaceResult(result);
+      setTestStatus(result.success ? `替换完成 (${result.replaced}处)` : "替换失败: " + result.message);
+    } catch (e: any) {
+      setTestStatus("替换失败: " + e.message);
+    }
+  };
+
   return (
     <main className={styles.page}>
       <div className={styles.container}>
@@ -211,6 +267,13 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
               >
                 文件列表
               </button>
+              <button
+                onClick={() => setShowFindReplace(!showFindReplace)}
+                className={styles.uploadButton}
+                style={{ backgroundColor: showFindReplace ? "#4CAF50" : undefined }}
+              >
+                查找替换
+              </button>
             </div>
           </div>
 
@@ -224,6 +287,102 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
 
           {uploadStatus && <p className={styles.tip}>{uploadStatus}</p>}
           {errorMessage && <p className={styles.errorTip}>{errorMessage}</p>}
+
+          {/* 查找替换测试面板 */}
+          {showFindReplace && (
+            <div style={{
+              padding: "16px",
+              margin: "12px 0",
+              backgroundColor: "#f5f5f5",
+              borderRadius: "8px",
+              border: "1px solid #ddd"
+            }}>
+              <h3 style={{ margin: "0 0 12px 0", fontSize: "16px" }}>查找替换测试</h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <label style={{ width: "80px" }}>文档ID:</label>
+                  <input
+                    type="text"
+                    value={currentDocId || ""}
+                    onChange={(e) => setCurrentDocId(e.target.value)}
+                    placeholder="输入文档ID"
+                    style={{ flex: 1, padding: "6px", borderRadius: "4px", border: "1px solid #ccc" }}
+                  />
+                  <button
+                    onClick={async () => {
+                      // 获取当前文档对应的服务器ID
+                      const res = await getDocumentList();
+                      if (res.success && res.documents.length > 0) {
+                        // 使用第一个文档的ID作为示例
+                        setCurrentDocId(res.documents[0].id);
+                        setTestStatus(`已设置文档ID: ${res.documents[0].id}`);
+                      }
+                    }}
+                    style={{ padding: "6px 12px", borderRadius: "4px", border: "1px solid #ccc", cursor: "pointer" }}
+                  >
+                    使用当前文档
+                  </button>
+                </div>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <label style={{ width: "80px" }}>查找:</label>
+                  <input
+                    type="text"
+                    value={findPattern}
+                    onChange={(e) => setFindPattern(e.target.value)}
+                    placeholder="输入要查找的内容"
+                    style={{ flex: 1, padding: "6px", borderRadius: "4px", border: "1px solid #ccc" }}
+                  />
+                </div>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <label style={{ width: "80px" }}>替换为:</label>
+                  <input
+                    type="text"
+                    value={replaceWith}
+                    onChange={(e) => setReplaceWith(e.target.value)}
+                    placeholder="输入替换内容"
+                    style={{ flex: 1, padding: "6px", borderRadius: "4px", border: "1px solid #ccc" }}
+                  />
+                </div>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button
+                    onClick={handleFind}
+                    style={{ padding: "8px 16px", borderRadius: "4px", border: "none", backgroundColor: "#2196F3", color: "white", cursor: "pointer" }}
+                  >
+                    查找
+                  </button>
+                  <button
+                    onClick={handleReplaceFirst}
+                    style={{ padding: "8px 16px", borderRadius: "4px", border: "none", backgroundColor: "#FF9800", color: "white", cursor: "pointer" }}
+                  >
+                    替换第一个
+                  </button>
+                  <button
+                    onClick={handleReplaceAll}
+                    style={{ padding: "8px 16px", borderRadius: "4px", border: "none", backgroundColor: "#f44336", color: "white", cursor: "pointer" }}
+                  >
+                    替换全部
+                  </button>
+                </div>
+                {testStatus && (
+                  <p style={{ margin: "8px 0 0 0", padding: "8px", backgroundColor: "#e8f5e9", borderRadius: "4px" }}>
+                    {testStatus}
+                  </p>
+                )}
+                {findResult && (
+                  <div style={{ marginTop: "8px", padding: "8px", backgroundColor: "#e3f2fd", borderRadius: "4px" }}>
+                    <strong>查找结果:</strong> 找到 {findResult.count} 处匹配
+                    {findResult.positions.length > 0 && (
+                      <ul style={{ margin: "8px 0 0 0", paddingLeft: "20px", fontSize: "12px" }}>
+                        {findResult.positions.slice(0, 5).map((pos, i) => (
+                          <li key={i}>[{pos.index}] {pos.text.substring(0, 50)}...</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {showList && (
             <DocumentList
