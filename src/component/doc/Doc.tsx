@@ -1,6 +1,6 @@
 import { SuperDocEditor } from "@superdoc-dev/react";
-import { useRef, useEffect, useMemo } from "react";
-import type { SuperDocInstance } from "@superdoc-dev/react";
+import { useRef, useMemo } from "react";
+import type { SuperDocInstance, SuperDocModules } from "@superdoc-dev/react";
 import * as Y from "yjs";
 import { HocuspocusProvider } from "@hocuspocus/provider";
 import "@superdoc-dev/react/style.css";
@@ -8,7 +8,7 @@ import styles from "./Doc.module.css";
 
 interface DocProps {
   documentData: Blob | null;
-  docId?: string;  // 新增：文档 ID（用于 Yjs 同步）
+  docId?: string;
   onLoadError?: (message: string) => void;
   onReadyStateChange?: (ready: boolean) => void;
   onPaginationChange?: (pages: number) => void;
@@ -26,33 +26,52 @@ export default function Doc({
   zoomPercent = 114,
 }: DocProps) {
   const superdocRef = useRef<SuperDocInstance | null>(null);
-  const providerRef = useRef<HocuspocusProvider | null>(null);
 
-  // 创建 Yjs 文档和 Provider（当有 docId 时）
-  const { ydoc, provider } = useMemo(() => {
+  // 创建 Yjs 协作模块（当有 docId 时）
+  const modules = useMemo(() => {
     if (!docId) {
-      return { ydoc: undefined, provider: undefined };
+      console.log("[Doc] 无 docId，不创建 Yjs 协作模块");
+      return undefined;
     }
 
+    console.log("[Doc] 创建 Yjs 协作模块，docId:", docId);
+    
     const ydoc = new Y.Doc();
+    console.log("[Doc] Y.Doc 创建完成");
+    
     const provider = new HocuspocusProvider({
-      url: "ws://localhost:1234/hocuspocus",
+      url: "ws://localhost:1234",
       name: docId,
       document: ydoc,
-      connect: true,
+    });
+    
+    // 添加连接状态监听
+    provider.on("status", (event: { status: string }) => {
+      console.log("[Doc] Hocuspocus 连接状态:", event.status);
+    });
+    
+    provider.on("sync", (synced: boolean) => {
+      console.log("[Doc] Hocuspocus 同步状态:", synced);
+    });
+    
+    provider.on("connect", () => {
+      console.log("[Doc] Hocuspocus 已连接");
+    });
+    
+    provider.on("disconnect", () => {
+      console.log("[Doc] Hocuspocus 已断开连接");
+    });
+    
+    provider.on("error", (error: Error) => {
+      console.log("[Doc] Hocuspocus 错误:", error.message);
     });
 
-    return { ydoc, provider };
-  }, [docId]);
+    console.log("[Doc] HocuspocusProvider 创建完成");
 
-  // 清理 Provider
-  useEffect(() => {
-    return () => {
-      if (providerRef.current) {
-        providerRef.current.destroy();
-      }
-    };
-  }, []);
+    return {
+      collaboration: { ydoc, provider: provider as Object },
+    } as SuperDocModules;
+  }, [docId]);
 
   const exportCurrentDocx = async (): Promise<Blob | null> => {
     if (!superdocRef.current) return null;
@@ -82,9 +101,7 @@ export default function Doc({
             }}
             comments={{ visible: false }}
             trackChanges={{ visible: false }}
-            // Yjs 协作配置
-            ydoc={ydoc}
-            provider={provider}
+            modules={modules}
             onReady={(event) => {
               superdocRef.current = event.superdoc;
               event.superdoc.setZoom(zoomPercent);
@@ -94,7 +111,7 @@ export default function Doc({
               });
               onReadyStateChange?.(true);
               onRegisterExporter?.(exportCurrentDocx);
-              console.log("SuperDoc ready with Yjs collaboration");
+              console.log("SuperDoc ready");
             }}
             onPaginationUpdate={(event) => {
               onPaginationChange?.(event.totalPages);
@@ -114,7 +131,7 @@ export default function Doc({
                 .slice(0, 3)
                 .map((it) => `${it.tagName} x${it.count}`)
                 .join(", ");
-              onLoadError?.(`存在不支持内容：${unsupportedSummary}`);
+              onLoadError?.(`存在���支持内容：${unsupportedSummary}`);
             }}
           />
         </div>

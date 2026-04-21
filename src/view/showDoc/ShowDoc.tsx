@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { DocumentList, DocumentViewer } from "@/component";
 import { fileStore } from "@/store/fileStore";
-import { cleanupDocuments, getDocumentList, findText, replaceText, getDocumentText } from "@/api/docApi";
+import { cleanupDocuments, getDocumentList, findText, replaceText, getDocumentText, saveDocument } from "@/api/docApi";
 import type { DocumentInfo } from "@/api/docApi";
 import styles from "./showDoc.module.css";
 
@@ -143,7 +143,6 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
     }
 
     fileStore.addFile(fileName, file);
-    setCurrentFileName(fileName);
     setErrorMessage("");
     e.target.value = "";
 
@@ -151,6 +150,8 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
     const result = await fileStore.uploadFile(file);
     if (result.success && result.fileId) {
       uploadedFileIdsRef.current.add(result.fileId);
+      fileStore.setUploadedId(result.fileName, result.fileId);
+      setCurrentFileName(result.fileName);  // 上传成功后再设置当前文件
       setUploadStatus(`上传成功: ${fileName}`);
     } else {
       setUploadStatus(`上传失败: ${fileName}`);
@@ -242,6 +243,21 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
       setTestStatus(result.success ? `替换完成 (${result.replaced}处)` : "替换失败: " + result.message);
     } catch (e: any) {
       setTestStatus("替换失败: " + e.message);
+    }
+  };
+
+  // 保存文档（触发 Yjs 同步）
+  const handleSave = async () => {
+    if (!currentDocId) {
+      setTestStatus("请先选择文档");
+      return;
+    }
+    setTestStatus("正在保存...");
+    try {
+      const result = await saveDocument(currentDocId);
+      setTestStatus(result.success ? "保存成功，Yjs 同步中..." : "保存失败: " + result.message);
+    } catch (e: any) {
+      setTestStatus("保存失败: " + e.message);
     }
   };
 
@@ -361,6 +377,12 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
                     style={{ padding: "8px 16px", borderRadius: "4px", border: "none", backgroundColor: "#f44336", color: "white", cursor: "pointer" }}
                   >
                     替换全部
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    style={{ padding: "8px 16px", borderRadius: "4px", border: "none", backgroundColor: "#4CAF50", color: "white", cursor: "pointer" }}
+                  >
+                    保存
                   </button>
                 </div>
                 {testStatus && (

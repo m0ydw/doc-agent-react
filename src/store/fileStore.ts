@@ -103,11 +103,12 @@ class FileStore {
     this.listeners.forEach(cb => cb(this.files, null));
   }
 
-  async uploadFile(file: File): Promise<{ success: boolean; fileId?: string }> {
+  async uploadFile(file: File): Promise<{ success: boolean; fileId?: string; fileName?: string }> {
     try {
       const response = await uploadDocuments([file]);
       if (response.success && response.files.length > 0) {
-        return { success: true, fileId: response.files[0].id };
+        const doc = response.files[0];
+        return { success: true, fileId: doc.id, fileName: doc.originalName };
       }
       return { success: false };
     } catch {
