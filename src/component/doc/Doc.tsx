@@ -27,46 +27,55 @@ export default function Doc({
 }: DocProps) {
   const superdocRef = useRef<SuperDocInstance | null>(null);
 
-  // 创建 Yjs 协作模块（当有 docId 时）
+  // 创建 Yjs 协作模块
   const modules = useMemo(() => {
     if (!docId) {
-      console.log("[Doc] 无 docId，不创建 Yjs 协作模块");
+      console.log("[Doc] 无 docId，不创建 Yjs");
       return undefined;
     }
 
-    console.log("[Doc] 创建 Yjs 协作模块，docId:", docId);
-    
+    console.log("[Doc] 创建 Yjs 模块, docId:", docId);
+
+    // 创建 Yjs 文档
     const ydoc = new Y.Doc();
-    console.log("[Doc] Y.Doc 创建完成");
-    
+    console.log("[Doc] ydoc 创建完成");
+
+    // 创建 Hocuspocus Provider
     const provider = new HocuspocusProvider({
       url: "ws://localhost:1234",
       name: docId,
       document: ydoc,
     });
-    
-    // 添加连接状态监听
+
+    console.log("[Doc] provider 创建完成");
+
+    // 监听事件
     provider.on("status", (event: { status: string }) => {
-      console.log("[Doc] Hocuspocus 连接状态:", event.status);
+      console.log("[Doc] Hocuspocus 状态:", event.status);
     });
-    
+
     provider.on("sync", (synced: boolean) => {
-      console.log("[Doc] Hocuspocus 同步状态:", synced);
+      console.log("[Doc] Hocuspocus 同步:", synced);
     });
-    
+
     provider.on("connect", () => {
       console.log("[Doc] Hocuspocus 已连接");
     });
-    
+
     provider.on("disconnect", () => {
-      console.log("[Doc] Hocuspocus 已断开连接");
+      console.log("[Doc] Hocuspocus 已断开");
     });
-    
+
     provider.on("error", (error: Error) => {
       console.log("[Doc] Hocuspocus 错误:", error.message);
     });
 
-    console.log("[Doc] HocuspocusProvider 创建完成");
+    // 监听 ydoc 变化
+    ydoc.on("update", (update: Uint8Array) => {
+      console.log("[Doc] ydoc 更新, 大小:", update.length);
+    });
+
+    console.log("[Doc] 返回 modules");
 
     return {
       collaboration: { ydoc, provider: provider as Object },
@@ -103,7 +112,12 @@ export default function Doc({
             trackChanges={{ visible: false }}
             modules={modules}
             onReady={(event) => {
+              console.log("[Doc] onReady 触发");
               superdocRef.current = event.superdoc;
+              console.log("[Doc] superdoc:", event.superdoc);
+              console.log("[Doc] ydoc:", event.superdoc.ydoc);
+              console.log("[Doc] provider:", event.superdoc.provider);
+
               event.superdoc.setZoom(zoomPercent);
               event.superdoc.setTrackedChangesPreferences({
                 mode: "final",
@@ -115,23 +129,24 @@ export default function Doc({
             }}
             onPaginationUpdate={(event) => {
               onPaginationChange?.(event.totalPages);
-              console.log("SuperDoc pagination pages:", event.totalPages);
             }}
             onContentError={(event) => {
+              console.log("[Doc] SuperDoc 内容错误:", event.error.message);
               onLoadError?.(event.error.message);
               onReadyStateChange?.(false);
             }}
             onException={(event) => {
+              console.log("[Doc] SuperDoc 异常:", event.error.message);
               onLoadError?.(event.error.message);
               onReadyStateChange?.(false);
             }}
             onUnsupportedContent={(items) => {
-              if (!items.length) return;
+              if (!items || !items.length) return;
               const unsupportedSummary = items
                 .slice(0, 3)
                 .map((it) => `${it.tagName} x${it.count}`)
                 .join(", ");
-              onLoadError?.(`存在���支持内容：${unsupportedSummary}`);
+              onLoadError?.(`存在不支持内容：${unsupportedSummary}`);
             }}
           />
         </div>

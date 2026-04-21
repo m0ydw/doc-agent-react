@@ -148,8 +148,16 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
 
     setUploadStatus(`正在上传: ${fileName}`);
     const result = await fileStore.uploadFile(file);
-    if (result.success && result.fileId) {
+    if (result.success && result.fileId && result.fileName) {
       uploadedFileIdsRef.current.add(result.fileId);
+
+      // 从后端下载文档（触发 ensureYjsRoom）
+      setUploadStatus(`正在获取文档: ${fileName}`);
+      const res = await fetch(
+        `http://localhost:3000/api/docs/${result.fileId}`
+      );
+      const blob = await res.blob();
+      fileStore.addFile(result.fileName, blob);  // 存入后端返回的 blob
       fileStore.setUploadedId(result.fileName, result.fileId);
       setCurrentFileName(result.fileName);  // 上传成功后再设置当前文件
       setUploadStatus(`上传成功: ${fileName}`);
