@@ -397,6 +397,7 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
             <DocumentViewer
               fileName={currentFileName}
               documentData={fileStore.getFile(currentFileName)!}
+              docId={fileStore.getFileId(currentFileName)}
               docKey={docKey}
               onDownload={handleDownload}
               onClear={handleClear}

@@ -5,6 +5,7 @@ import styles from "./DocumentViewer.module.css";
 interface DocumentViewerProps {
   fileName: string;
   documentData: Blob;
+  docId?: string;
   docKey: number;
   onDownload: () => void;
   onClear: () => void;
@@ -13,6 +14,7 @@ interface DocumentViewerProps {
 export default function DocumentViewer({
   fileName,
   documentData,
+  docId,
   docKey,
   onDownload,
   onClear,
@@ -20,7 +22,7 @@ export default function DocumentViewer({
   return (
     <div className={styles.container}>
       <div className={styles.header}>当前文件: {fileName}</div>
-      <Doc key={docKey} documentData={documentData} />
+      <Doc key={docKey} documentData={documentData} docId={docId} />
       <div className={styles.actions}>
         <button onClick={onDownload} className={styles.button}>
           下载文件

@@ -84,6 +84,11 @@ class FileStore {
     return this.files.get(fileName);
   }
 
+  // 获取文件对应的 ID
+  getFileId(fileName: string): string | undefined {
+    return this.uploadedFiles.get(fileName);
+  }
+
   setUploadedId(fileName: string, id: string): void {
     this.uploadedFiles.set(fileName, id);
     this.uploadedFileIds.set(id, fileName);
