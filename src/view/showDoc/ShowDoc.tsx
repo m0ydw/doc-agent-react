@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { DocumentList, DocumentViewer } from "@/component";
 import { fileStore } from "@/store/fileStore";
-import { cleanupDocuments, getDocumentList, findText, replaceText, getDocumentText } from "@/api/docApi";
+import { cleanupDocuments, getDocumentList, findText, replaceText, getDocumentText, saveDocument } from "@/api/docApi";
 import type { DocumentInfo } from "@/api/docApi";
 import styles from "./showDoc.module.css";
 
@@ -245,6 +245,21 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
     }
   };
 
+  // 保存文档
+  const handleSave = async () => {
+    if (!currentDocId) {
+      setTestStatus("请先选择文档");
+      return;
+    }
+    setTestStatus("正在保存...");
+    try {
+      const result = await saveDocument(currentDocId);
+      setTestStatus(result.success ? "保存成功，文档将自动刷新" : "保存失败: " + result.message);
+    } catch (e: any) {
+      setTestStatus("保存失败: " + e.message);
+    }
+  };
+
   return (
     <main className={styles.page}>
       <div className={styles.container}>
@@ -361,6 +376,12 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
                     style={{ padding: "8px 16px", borderRadius: "4px", border: "none", backgroundColor: "#f44336", color: "white", cursor: "pointer" }}
                   >
                     替换全部
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    style={{ padding: "8px 16px", borderRadius: "4px", border: "none", backgroundColor: "#4CAF50", color: "white", cursor: "pointer" }}
+                  >
+                    保存
                   </button>
                 </div>
                 {testStatus && (
