@@ -125,10 +125,3 @@ export const getDocumentText = async (
   const response = await axios.get(`${DOC_OPS_BASE_URL}/text/${docId}`);
   return response.data;
 };
-
-export const saveDocument = async (
-  docId: string
-): Promise<{ success: boolean; message: string }> => {
-  const response = await axios.post(`${DOC_OPS_BASE_URL}/save/${docId}`);
-  return response.data;
-};
