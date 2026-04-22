@@ -1,5 +1,5 @@
 import { SuperDocEditor } from "@superdoc-dev/react";
-import { useRef, useMemo } from "react";
+import { useRef, useState, useEffect } from "react";
 import type { SuperDocInstance, SuperDocModules } from "@superdoc-dev/react";
 import * as Y from "yjs";
 import { HocuspocusProvider } from "@hocuspocus/provider";
@@ -26,18 +26,27 @@ export default function Doc({
   zoomPercent = 114,
 }: DocProps) {
   const superdocRef = useRef<SuperDocInstance | null>(null);
+  const providerRef = useRef<HocuspocusProvider | null>(null);
+  const ydocRef = useRef<Y.Doc | null>(null);
 
-  // 创建 Yjs 协作模块
-  const modules = useMemo(() => {
+  // 使用 state 管理 modules，以便在 provider 创建完成后触发重渲染
+  const [modules, setModules] = useState<SuperDocModules | undefined>(
+    undefined
+  );
+
+  // 使用 useEffect 管理 Yjs provider 生命周期
+  useEffect(() => {
     if (!docId) {
       console.log("[Doc] 无 docId，不创建 Yjs");
-      return undefined;
+      setModules(undefined);
+      return;
     }
 
     console.log("[Doc] 创建 Yjs 模块, docId:", docId);
 
     // 创建 Yjs 文档
     const ydoc = new Y.Doc();
+    ydocRef.current = ydoc;
     console.log("[Doc] ydoc 创建完成");
 
     // 创建 Hocuspocus Provider
@@ -46,6 +55,7 @@ export default function Doc({
       name: docId,
       document: ydoc,
     });
+    providerRef.current = provider;
 
     console.log("[Doc] provider 创建完成");
 
@@ -70,16 +80,36 @@ export default function Doc({
       console.log("[Doc] Hocuspocus 错误:", error.message);
     });
 
-    // 监听 ydoc 变化
+    // 监听 ydoc 变化并刷新内容
     ydoc.on("update", (update: Uint8Array) => {
       console.log("[Doc] ydoc 更新, 大小:", update.length);
+      // 如果文档已就绪，延迟刷新内容
+      if (superdocRef.current) {
+        setTimeout(() => {
+          const superdoc = superdocRef.current as any;
+          if (superdoc && superdoc.setDocument) {
+            console.log("[Doc] 尝试重新加载文档");
+            // superdoc.setDocument({ ydoc });
+          }
+        }, 1000);
+      }
     });
 
-    console.log("[Doc] 返回 modules");
+    console.log("[Doc] 设置 modules");
 
-    return {
+    setModules({
       collaboration: { ydoc, provider: provider as Object },
-    } as SuperDocModules;
+    } as SuperDocModules);
+
+    // 清理函数：组件卸载或 docId 变化时销毁 provider 和 ydoc
+    return () => {
+      console.log("[Doc] 清理 Yjs 资源, docId:", docId);
+      provider.destroy();
+      ydoc.destroy();
+      providerRef.current = null;
+      ydocRef.current = null;
+      setModules(undefined);
+    };
   }, [docId]);
 
   const exportCurrentDocx = async (): Promise<Blob | null> => {
