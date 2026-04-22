@@ -1,7 +1,16 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { DocumentList, DocumentViewer } from "@/component";
-import { fileStore } from "@/store/fileStore";
-import { cleanupDocuments, getDocumentList, findText, replaceText, getDocumentText, saveDocument } from "@/api/docApi";
+import {
+  cleanupDocuments,
+  deleteDocument,
+  findText,
+  getDocumentList,
+  getDocumentUrl,
+  openDocumentSession,
+  replaceText,
+  saveDocument,
+  uploadDocuments,
+} from "@/api/docApi";
 import type { DocumentInfo } from "@/api/docApi";
 import styles from "./showDoc.module.css";
 
@@ -11,83 +20,105 @@ type FileUploadProps = {
 
 export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [currentFileName, setCurrentFileName] = useState<string | null>(null);
+  const uploadedFileIdsRef = useRef<Set<string>>(new Set());
+
+  const [currentDoc, setCurrentDoc] = useState<DocumentInfo | null>(null);
+  const [currentDocumentBlob, setCurrentDocumentBlob] = useState<Blob | null>(
+    null
+  );
+  const [fileList, setFileList] = useState<DocumentInfo[]>([]);
   const [errorMessage, setErrorMessage] = useState("");
   const [uploadStatus, setUploadStatus] = useState("");
   const [showList, setShowList] = useState(false);
   const [docKey, setDocKey] = useState(0);
-  const [fileList, setFileList] = useState<DocumentInfo[]>(
-    fileStore.getFileList()
-  );
-  const uploadedFileIdsRef = useRef<Set<string>>(new Set());
 
-  // 查找替换测试相关状态
   const [showFindReplace, setShowFindReplace] = useState(false);
   const [findPattern, setFindPattern] = useState("");
   const [replaceWith, setReplaceWith] = useState("");
-  const [findResult, setFindResult] = useState<{ success: boolean; count: number; positions: any[] } | null>(null);
-  const [replaceResult, setReplaceResult] = useState<{ success: boolean; replaced?: number; message?: string } | null>(null);
+  const [findResult, setFindResult] = useState<{
+    success: boolean;
+    count: number;
+    positions: Array<{ index: number; text: string; ref: string }>;
+  } | null>(null);
+  const [replaceResult, setReplaceResult] = useState<{
+    success: boolean;
+    replaced?: number;
+    message?: string;
+  } | null>(null);
   const [testStatus, setTestStatus] = useState("");
-  const [currentDocId, setCurrentDocId] = useState<string | null>(null);
+  const [currentDocId, setCurrentDocId] = useState<string>("");
 
-  useEffect(() => {
-    const unsubscribe = fileStore.subscribe(() => {
-      setFileList(fileStore.getFileList());
-    });
-    return unsubscribe;
+  const refreshDocumentList = useCallback(async () => {
+    const res = await getDocumentList();
+    if (res.success) {
+      setFileList(res.documents);
+    }
   }, []);
 
-  useEffect(() => {
-    getDocumentList().then((res) => {
-      if (res.success) {
-        res.documents.forEach((doc) => {
-          fileStore.setUploadedId(doc.originalName, doc.id);
-        });
-        fileStore.setServerFileList(res.documents);
-        setFileList(res.documents);
+  const openAndLoadDocument = useCallback(
+    async (docId: string) => {
+      const openRes = await openDocumentSession(docId);
+      if (!openRes.success || !openRes.document) {
+        throw new Error("打开文档失败");
       }
-    });
-  }, []);
+
+      const fileResponse = await fetch(getDocumentUrl(docId));
+      if (!fileResponse.ok) {
+        throw new Error(`下载文档失败: ${fileResponse.status}`);
+      }
+
+      const blob = await fileResponse.blob();
+
+      setCurrentDoc(openRes.document);
+      setCurrentDocumentBlob(blob);
+      setCurrentDocId(openRes.document.id);
+      setDocKey((prev) => prev + 1);
+    },
+    []
+  );
 
   useEffect(() => {
-    const eventSource = new EventSource(
-      "http://localhost:3000/api/docs/events"
-    );
+    void refreshDocumentList();
+  }, [refreshDocumentList]);
 
-    eventSource.addEventListener("file_updated", async (e) => {
+  useEffect(() => {
+    const eventSource = new EventSource("http://localhost:3000/api/docs/events");
+
+    eventSource.addEventListener("file_updated", async (event) => {
       try {
-        const data = JSON.parse(e.data);
-        if (data.fileId && data.fileName) {
-          const res = await fetch(
-            `http://localhost:3000/api/docs/${data.fileId}`
-          );
-          const blob = await res.blob();
-          fileStore.updateFileFromServer(data.fileName, blob);
-          if (currentFileName === data.fileName) {
+        const data = JSON.parse(event.data);
+        if (!data?.fileId) return;
+
+        await refreshDocumentList();
+
+        if (currentDoc?.id === data.fileId) {
+          const fileResponse = await fetch(getDocumentUrl(data.fileId));
+          if (fileResponse.ok) {
+            const blob = await fileResponse.blob();
+            setCurrentDocumentBlob(blob);
             setDocKey((prev) => prev + 1);
           }
-          setUploadStatus(`文件已更新: ${data.fileName}`);
         }
+
+        setUploadStatus(`文件已更新: ${data.fileName || data.fileId}`);
       } catch (error) {
         console.error("处理文件更新失败:", error);
       }
     });
 
-    eventSource.addEventListener("file_deleted", async (e) => {
+    eventSource.addEventListener("file_deleted", async (event) => {
       try {
-        const data = JSON.parse(e.data);
-        if (data.fileId && data.fileName) {
-          fileStore.removeFileById(data.fileId);
-          if (currentFileName === data.fileName) {
-            setCurrentFileName(null);
-          }
-          const res = await getDocumentList();
-          if (res.success) {
-            fileStore.setServerFileList(res.documents);
-            setFileList(res.documents);
-          }
-          setUploadStatus(`文件已删除: ${data.fileName}`);
+        const data = JSON.parse(event.data);
+        if (!data?.fileId) return;
+
+        if (currentDoc?.id === data.fileId) {
+          setCurrentDoc(null);
+          setCurrentDocumentBlob(null);
+          setCurrentDocId("");
         }
+
+        await refreshDocumentList();
+        setUploadStatus(`文件已删除: ${data.fileName || data.fileId}`);
       } catch (error) {
         console.error("处理文件删除失败:", error);
       }
@@ -98,7 +129,7 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
     };
 
     return () => eventSource.close();
-  }, [currentFileName]);
+  }, [currentDoc?.id, refreshDocumentList]);
 
   useEffect(() => {
     const handleBeforeUnload = async () => {
@@ -112,8 +143,8 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, []);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
     if (files.length === 0) return;
 
     const file = files[0];
@@ -126,88 +157,93 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
 
     if (!isValid) {
       setErrorMessage("请选择 .docx 文件");
-      e.target.value = "";
+      event.target.value = "";
       return;
     }
 
     if (file.size > maxSize * 1024 * 1024) {
       setErrorMessage(`最大支持 ${maxSize}MB`);
-      e.target.value = "";
+      event.target.value = "";
       return;
     }
 
-    if (fileStore.hasFile(fileName)) {
-      setErrorMessage(`文件 "${fileName}" 已存在，禁止重复上传`);
-      e.target.value = "";
-      return;
-    }
-
-    fileStore.addFile(fileName, file);
     setErrorMessage("");
-    e.target.value = "";
-
     setUploadStatus(`正在上传: ${fileName}`);
-    const result = await fileStore.uploadFile(file);
-    if (result.success && result.fileId && result.fileName) {
-      uploadedFileIdsRef.current.add(result.fileId);
 
-      // 从后端下载文档（触发 ensureYjsRoom）
-      setUploadStatus(`正在获取文档: ${fileName}`);
-      const res = await fetch(
-        `http://localhost:3000/api/docs/${result.fileId}`
-      );
-      const blob = await res.blob();
-      fileStore.addFile(result.fileName, blob);  // 存入后端返回的 blob
-      fileStore.setUploadedId(result.fileName, result.fileId);
-      setCurrentFileName(result.fileName);  // 上传成功后再设置当前文件
-      setUploadStatus(`上传成功: ${fileName}`);
-    } else {
+    try {
+      const uploadRes = await uploadDocuments([file]);
+      const uploaded = uploadRes.files?.[0];
+      if (!uploadRes.success || !uploaded) {
+        throw new Error("上传接口返回异常");
+      }
+
+      uploadedFileIdsRef.current.add(uploaded.id);
+      setUploadStatus(`正在打开: ${uploaded.originalName}`);
+
+      await openAndLoadDocument(uploaded.id);
+      await refreshDocumentList();
+
+      setUploadStatus(`上传成功: ${uploaded.originalName}`);
+    } catch (error: any) {
       setUploadStatus(`上传失败: ${fileName}`);
+      setErrorMessage(error.message || "上传失败");
+    } finally {
+      event.target.value = "";
     }
   };
 
   const handleDeleteDocument = useCallback(
-    async (id: string, fileName: string) => {
-      const success = await fileStore.deleteFile(id, fileName);
-      if (success) {
-        if (currentFileName === fileName) {
-          setCurrentFileName(null);
+    async (id: string, _fileName: string) => {
+      try {
+        await deleteDocument(id);
+        if (currentDoc?.id === id) {
+          setCurrentDoc(null);
+          setCurrentDocumentBlob(null);
+          setCurrentDocId("");
         }
+        await refreshDocumentList();
         setUploadStatus("文件已删除");
-      } else {
+      } catch {
         setErrorMessage("删除失败");
       }
     },
-    [currentFileName]
+    [currentDoc?.id, refreshDocumentList]
   );
 
-  const handleSelectDocument = useCallback((doc: DocumentInfo) => {
-    if (fileStore.hasFile(doc.originalName)) {
-      setCurrentFileName(doc.originalName);
-      setDocKey((prev) => prev + 1);
-    }
-    setShowList(false);
-  }, []);
+  const handleSelectDocument = useCallback(
+    async (doc: DocumentInfo) => {
+      try {
+        setUploadStatus(`正在打开: ${doc.originalName}`);
+        await openAndLoadDocument(doc.id);
+        setUploadStatus(`已打开: ${doc.originalName}`);
+      } catch (error: any) {
+        setErrorMessage(error.message || "打开文档失败");
+      } finally {
+        setShowList(false);
+      }
+    },
+    [openAndLoadDocument]
+  );
 
   const handleDownload = () => {
-    if (currentFileName) {
-      const blob = fileStore.getFile(currentFileName);
-      if (blob) {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = currentFileName;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
+    if (!currentDoc || !currentDocumentBlob) {
+      return;
     }
+
+    const url = URL.createObjectURL(currentDocumentBlob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = currentDoc.originalName;
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleClear = () => {
-    setCurrentFileName(null);
+    setCurrentDoc(null);
+    setCurrentDocumentBlob(null);
+    setCurrentDocId("");
   };
 
-  // 查找/替换测试函数
   const handleFind = async () => {
     if (!currentDocId || !findPattern.trim()) {
       setTestStatus("请先选择文档并输入要查找的内容");
@@ -219,8 +255,8 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
       setFindResult(result);
       setReplaceResult(null);
       setTestStatus(`找到 ${result.count} 处匹配`);
-    } catch (e: any) {
-      setTestStatus("查找失败: " + e.message);
+    } catch (error: any) {
+      setTestStatus("查找失败: " + error.message);
     }
   };
 
@@ -233,9 +269,9 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
     try {
       const result = await replaceText(currentDocId, findPattern, replaceWith, false);
       setReplaceResult(result);
-      setTestStatus(result.success ? `替换完成 (1处)` : "替换失败: " + result.message);
-    } catch (e: any) {
-      setTestStatus("替换失败: " + e.message);
+      setTestStatus(result.success ? "替换完成 (1处)" : "替换失败: " + result.message);
+    } catch (error: any) {
+      setTestStatus("替换失败: " + error.message);
     }
   };
 
@@ -248,13 +284,14 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
     try {
       const result = await replaceText(currentDocId, findPattern, replaceWith, true);
       setReplaceResult(result);
-      setTestStatus(result.success ? `替换完成 (${result.replaced}处)` : "替换失败: " + result.message);
-    } catch (e: any) {
-      setTestStatus("替换失败: " + e.message);
+      setTestStatus(
+        result.success ? `替换完成 (${result.replaced}处)` : "替换失败: " + result.message
+      );
+    } catch (error: any) {
+      setTestStatus("替换失败: " + error.message);
     }
   };
 
-  // 保存文档（触发 Yjs 同步）
   const handleSave = async () => {
     if (!currentDocId) {
       setTestStatus("请先选择文档");
@@ -263,9 +300,11 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
     setTestStatus("正在保存...");
     try {
       const result = await saveDocument(currentDocId);
-      setTestStatus(result.success ? "保存成功，Yjs 同步中..." : "保存失败: " + result.message);
-    } catch (e: any) {
-      setTestStatus("保存失败: " + e.message);
+      setTestStatus(
+        result.success ? "保存成功，Yjs 同步中..." : "保存失败: " + result.message
+      );
+    } catch (error: any) {
+      setTestStatus("保存失败: " + error.message);
     }
   };
 
@@ -285,10 +324,7 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
               >
                 选择文件
               </button>
-              <button
-                onClick={() => setShowList(true)}
-                className={styles.uploadButton}
-              >
+              <button onClick={() => setShowList(true)} className={styles.uploadButton}>
                 文件列表
               </button>
               <button
@@ -312,37 +348,44 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
           {uploadStatus && <p className={styles.tip}>{uploadStatus}</p>}
           {errorMessage && <p className={styles.errorTip}>{errorMessage}</p>}
 
-          {/* 查找替换测试面板 */}
           {showFindReplace && (
-            <div style={{
-              padding: "16px",
-              margin: "12px 0",
-              backgroundColor: "#f5f5f5",
-              borderRadius: "8px",
-              border: "1px solid #ddd"
-            }}>
+            <div
+              style={{
+                padding: "16px",
+                margin: "12px 0",
+                backgroundColor: "#f5f5f5",
+                borderRadius: "8px",
+                border: "1px solid #ddd",
+              }}
+            >
               <h3 style={{ margin: "0 0 12px 0", fontSize: "16px" }}>查找替换测试</h3>
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                   <label style={{ width: "80px" }}>文档ID:</label>
                   <input
                     type="text"
-                    value={currentDocId || ""}
+                    value={currentDocId}
                     onChange={(e) => setCurrentDocId(e.target.value)}
                     placeholder="输入文档ID"
-                    style={{ flex: 1, padding: "6px", borderRadius: "4px", border: "1px solid #ccc" }}
+                    style={{
+                      flex: 1,
+                      padding: "6px",
+                      borderRadius: "4px",
+                      border: "1px solid #ccc",
+                    }}
                   />
                   <button
-                    onClick={async () => {
-                      // 获取当前文档对应的服务器ID
-                      const res = await getDocumentList();
-                      if (res.success && res.documents.length > 0) {
-                        // 使用第一个文档的ID作为示例
-                        setCurrentDocId(res.documents[0].id);
-                        setTestStatus(`已设置文档ID: ${res.documents[0].id}`);
-                      }
+                    onClick={() => {
+                      if (!currentDoc) return;
+                      setCurrentDocId(currentDoc.id);
+                      setTestStatus(`已设置文档ID: ${currentDoc.id}`);
                     }}
-                    style={{ padding: "6px 12px", borderRadius: "4px", border: "1px solid #ccc", cursor: "pointer" }}
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: "4px",
+                      border: "1px solid #ccc",
+                      cursor: "pointer",
+                    }}
                   >
                     使用当前文档
                   </button>
@@ -354,7 +397,12 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
                     value={findPattern}
                     onChange={(e) => setFindPattern(e.target.value)}
                     placeholder="输入要查找的内容"
-                    style={{ flex: 1, padding: "6px", borderRadius: "4px", border: "1px solid #ccc" }}
+                    style={{
+                      flex: 1,
+                      padding: "6px",
+                      borderRadius: "4px",
+                      border: "1px solid #ccc",
+                    }}
                   />
                 </div>
                 <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -364,50 +412,120 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
                     value={replaceWith}
                     onChange={(e) => setReplaceWith(e.target.value)}
                     placeholder="输入替换内容"
-                    style={{ flex: 1, padding: "6px", borderRadius: "4px", border: "1px solid #ccc" }}
+                    style={{
+                      flex: 1,
+                      padding: "6px",
+                      borderRadius: "4px",
+                      border: "1px solid #ccc",
+                    }}
                   />
                 </div>
                 <div style={{ display: "flex", gap: "8px" }}>
                   <button
                     onClick={handleFind}
-                    style={{ padding: "8px 16px", borderRadius: "4px", border: "none", backgroundColor: "#2196F3", color: "white", cursor: "pointer" }}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: "4px",
+                      border: "none",
+                      backgroundColor: "#2196F3",
+                      color: "white",
+                      cursor: "pointer",
+                    }}
                   >
                     查找
                   </button>
                   <button
                     onClick={handleReplaceFirst}
-                    style={{ padding: "8px 16px", borderRadius: "4px", border: "none", backgroundColor: "#FF9800", color: "white", cursor: "pointer" }}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: "4px",
+                      border: "none",
+                      backgroundColor: "#FF9800",
+                      color: "white",
+                      cursor: "pointer",
+                    }}
                   >
                     替换第一个
                   </button>
                   <button
                     onClick={handleReplaceAll}
-                    style={{ padding: "8px 16px", borderRadius: "4px", border: "none", backgroundColor: "#f44336", color: "white", cursor: "pointer" }}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: "4px",
+                      border: "none",
+                      backgroundColor: "#f44336",
+                      color: "white",
+                      cursor: "pointer",
+                    }}
                   >
                     替换全部
                   </button>
                   <button
                     onClick={handleSave}
-                    style={{ padding: "8px 16px", borderRadius: "4px", border: "none", backgroundColor: "#4CAF50", color: "white", cursor: "pointer" }}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: "4px",
+                      border: "none",
+                      backgroundColor: "#4CAF50",
+                      color: "white",
+                      cursor: "pointer",
+                    }}
                   >
                     保存
                   </button>
                 </div>
                 {testStatus && (
-                  <p style={{ margin: "8px 0 0 0", padding: "8px", backgroundColor: "#e8f5e9", borderRadius: "4px" }}>
+                  <p
+                    style={{
+                      margin: "8px 0 0 0",
+                      padding: "8px",
+                      backgroundColor: "#e8f5e9",
+                      borderRadius: "4px",
+                    }}
+                  >
                     {testStatus}
                   </p>
                 )}
                 {findResult && (
-                  <div style={{ marginTop: "8px", padding: "8px", backgroundColor: "#e3f2fd", borderRadius: "4px" }}>
+                  <div
+                    style={{
+                      marginTop: "8px",
+                      padding: "8px",
+                      backgroundColor: "#e3f2fd",
+                      borderRadius: "4px",
+                    }}
+                  >
                     <strong>查找结果:</strong> 找到 {findResult.count} 处匹配
                     {findResult.positions.length > 0 && (
-                      <ul style={{ margin: "8px 0 0 0", paddingLeft: "20px", fontSize: "12px" }}>
-                        {findResult.positions.slice(0, 5).map((pos, i) => (
-                          <li key={i}>[{pos.index}] {pos.text.substring(0, 50)}...</li>
+                      <ul
+                        style={{
+                          margin: "8px 0 0 0",
+                          paddingLeft: "20px",
+                          fontSize: "12px",
+                        }}
+                      >
+                        {findResult.positions.slice(0, 5).map((pos, index) => (
+                          <li key={index}>
+                            [{pos.index}] {pos.text.substring(0, 50)}...
+                          </li>
                         ))}
                       </ul>
                     )}
+                  </div>
+                )}
+                {replaceResult && (
+                  <div
+                    style={{
+                      marginTop: "8px",
+                      padding: "8px",
+                      backgroundColor: replaceResult.success ? "#fff3e0" : "#ffebee",
+                      borderRadius: "4px",
+                    }}
+                  >
+                    <strong>替换结果:</strong>{" "}
+                    {replaceResult.success
+                      ? `已替换 ${replaceResult.replaced ?? 0} 处`
+                      : `失败：${replaceResult.message ?? "未知错误"}`}
                   </div>
                 )}
               </div>
@@ -423,19 +541,18 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
             />
           )}
 
-          {currentFileName && fileStore.getFile(currentFileName) ? (
+          {currentDoc && currentDocumentBlob ? (
             <DocumentViewer
-              fileName={currentFileName}
-              documentData={fileStore.getFile(currentFileName)!}
-              docId={fileStore.getFileId(currentFileName)}
+              fileName={currentDoc.originalName}
+              documentData={currentDocumentBlob}
+              docId={currentDoc.roomName || currentDoc.id}
+              collaborationWsUrl={currentDoc.collaboration?.wsUrl}
               docKey={docKey}
               onDownload={handleDownload}
               onClear={handleClear}
             />
           ) : (
-            !showList && (
-              <div className={styles.placeholder}>请上传 DOC 文件</div>
-            )
+            !showList && <div className={styles.placeholder}>请上传 DOC 文件</div>
           )}
         </div>
       </div>

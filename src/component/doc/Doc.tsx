@@ -1,5 +1,5 @@
 import { SuperDocEditor } from "@superdoc-dev/react";
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useMemo } from "react";
 import type { SuperDocInstance, SuperDocModules } from "@superdoc-dev/react";
 import * as Y from "yjs";
 import { HocuspocusProvider } from "@hocuspocus/provider";
@@ -9,6 +9,7 @@ import styles from "./Doc.module.css";
 interface DocProps {
   documentData: Blob | null;
   docId?: string;
+  collaborationWsUrl?: string;
   onLoadError?: (message: string) => void;
   onReadyStateChange?: (ready: boolean) => void;
   onPaginationChange?: (pages: number) => void;
@@ -19,6 +20,7 @@ interface DocProps {
 export default function Doc({
   documentData,
   docId,
+  collaborationWsUrl = "ws://localhost:1234",
   onLoadError,
   onReadyStateChange,
   onPaginationChange,
@@ -28,6 +30,15 @@ export default function Doc({
   const superdocRef = useRef<SuperDocInstance | null>(null);
   const providerRef = useRef<HocuspocusProvider | null>(null);
   const ydocRef = useRef<Y.Doc | null>(null);
+
+  // Collaboration requires a user object (SuperDoc assigns awareness colors from it).
+  const collaborationUser = useMemo(
+    () => ({
+      name: "Web",
+      email: `web-${Math.random().toString(36).slice(2)}@local`,
+    }),
+    []
+  );
 
   // 使用 state 管理 modules，以便在 provider 创建完成后触发重渲染
   const [modules, setModules] = useState<SuperDocModules | undefined>(
@@ -51,7 +62,7 @@ export default function Doc({
 
     // 创建 Hocuspocus Provider
     const provider = new HocuspocusProvider({
-      url: "ws://localhost:1234",
+      url: collaborationWsUrl,
       name: docId,
       document: ydoc,
     });
@@ -97,9 +108,21 @@ export default function Doc({
 
     console.log("[Doc] 设置 modules");
 
+    const collabProvider = {
+      awareness: provider.awareness ?? undefined,
+      on: (event: string, handler: Function) =>
+        provider.on(event as any, handler as any),
+      off: (event: string, handler: Function) =>
+        (provider as any).off?.(event as any, handler as any),
+      disconnect: () => (provider as any).disconnect?.(),
+      destroy: () => provider.destroy(),
+      synced: (provider as any).synced,
+      isSynced: (provider as any).isSynced,
+    };
+
     setModules({
-      collaboration: { ydoc, provider: provider as Object },
-    } as SuperDocModules);
+      collaboration: { ydoc, provider: collabProvider },
+    });
 
     // 清理函数：组件卸载或 docId 变化时销毁 provider 和 ydoc
     return () => {
@@ -110,7 +133,7 @@ export default function Doc({
       ydocRef.current = null;
       setModules(undefined);
     };
-  }, [docId]);
+  }, [docId, collaborationWsUrl]);
 
   const exportCurrentDocx = async (): Promise<Blob | null> => {
     if (!superdocRef.current) return null;
@@ -132,8 +155,10 @@ export default function Doc({
             document={documentData}
             format="docx"
             documentMode="viewing"
+            role="viewer"
             contained={false}
             viewOptions={{ layout: "print" }}
+            user={collaborationUser}
             layoutEngineOptions={{
               flowMode: "paginated",
               trackedChanges: { mode: "final", enabled: false } as object,

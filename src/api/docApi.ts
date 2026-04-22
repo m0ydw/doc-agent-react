@@ -2,14 +2,22 @@ import axios from "axios";
 
 const API_BASE_URL = "http://localhost:3000/api/docs";
 
+export type CollaborationInfo = {
+  docId: string;
+  roomName: string;
+  wsUrl: string;
+};
+
 export type DocumentInfo = {
   id: string;
+  roomName: string;
   originalName: string;
   storedName: string;
   size: number;
   mimeType: string;
   uploadedAt: string;
   filePath: string;
+  collaboration?: CollaborationInfo;
 };
 
 export type UploadResponse = {
@@ -59,6 +67,13 @@ export const getDocumentInfo = async (
   id: string
 ): Promise<{ success: boolean; document: DocumentInfo }> => {
   const response = await axios.get(`${API_BASE_URL}/${id}/info`);
+  return response.data;
+};
+
+export const openDocumentSession = async (
+  id: string
+): Promise<{ success: boolean; document: DocumentInfo }> => {
+  const response = await axios.post(`${API_BASE_URL}/${id}/open`);
   return response.data;
 };
 

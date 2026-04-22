@@ -1,4 +1,3 @@
-import React from "react";
 import Doc from "../Doc/Doc";
 import styles from "./DocumentViewer.module.css";
 
@@ -6,6 +5,7 @@ interface DocumentViewerProps {
   fileName: string;
   documentData: Blob;
   docId?: string;
+  collaborationWsUrl?: string;
   docKey: number;
   onDownload: () => void;
   onClear: () => void;
@@ -15,6 +15,7 @@ export default function DocumentViewer({
   fileName,
   documentData,
   docId,
+  collaborationWsUrl,
   docKey,
   onDownload,
   onClear,
@@ -22,7 +23,12 @@ export default function DocumentViewer({
   return (
     <div className={styles.container}>
       <div className={styles.header}>当前文件: {fileName}</div>
-      <Doc key={docKey} documentData={documentData} docId={docId} />
+      <Doc
+        key={docKey}
+        documentData={documentData}
+        docId={docId}
+        collaborationWsUrl={collaborationWsUrl}
+      />
       <div className={styles.actions}>
         <button onClick={onDownload} className={styles.button}>
           下载文件
