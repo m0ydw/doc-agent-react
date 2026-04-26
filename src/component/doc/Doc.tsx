@@ -165,7 +165,7 @@ export default function Doc({
               }}
               comments={{ visible: false }}
               trackChanges={{ visible: false }}
-              modules={collabRuntime?.modules}
+              // modules={collabRuntime?.modules}
               onReady={(event) => {
                 console.log("[Doc] onReady 触发");
                 superdocRef.current = event.superdoc;

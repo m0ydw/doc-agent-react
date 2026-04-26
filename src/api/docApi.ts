@@ -63,6 +63,15 @@ export const getDocumentUrl = (id: string): string => {
   return `${API_BASE_URL}/${id}`;
 };
 
+// 获取文件原始内容（供播种用）
+export const getDocumentSeed = async (id: string): Promise<Blob> => {
+  const response = await fetch(`${API_BASE_URL}/${id}/seed`);
+  if (!response.ok) {
+    throw new Error(`获取种子文件失败: ${response.status}`);
+  }
+  return response.blob();
+};
+
 export const getDocumentInfo = async (
   id: string
 ): Promise<{ success: boolean; document: DocumentInfo }> => {

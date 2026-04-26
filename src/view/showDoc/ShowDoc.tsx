@@ -5,10 +5,10 @@ import {
   deleteDocument,
   findText,
   getDocumentList,
+  getDocumentSeed,
   getDocumentUrl,
   openDocumentSession,
   replaceText,
-  saveDocument,
   uploadDocuments,
 } from "@/api/docApi";
 import type { DocumentInfo } from "@/api/docApi";
@@ -57,20 +57,17 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
 
   const openAndLoadDocument = useCallback(
     async (docId: string) => {
+      // 1. 获取协作房间信息
       const openRes = await openDocumentSession(docId);
       if (!openRes.success || !openRes.document) {
         throw new Error("打开文档失败");
       }
 
-      const fileResponse = await fetch(getDocumentUrl(docId));
-      if (!fileResponse.ok) {
-        throw new Error(`下载文档失败: ${fileResponse.status}`);
-      }
-
-      const blob = await fileResponse.blob();
+      // 2. 获取文件原始内容（播种用）
+      const seedBlob = await getDocumentSeed(docId);
 
       setCurrentDoc(openRes.document);
-      setCurrentDocumentBlob(blob);
+      setCurrentDocumentBlob(seedBlob);
       setCurrentDocId(openRes.document.id);
       setDocKey((prev) => prev + 1);
     },
@@ -81,56 +78,7 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
     void refreshDocumentList();
   }, [refreshDocumentList]);
 
-  useEffect(() => {
-    const eventSource = new EventSource("http://localhost:3000/api/docs/events");
-
-    eventSource.addEventListener("file_updated", async (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (!data?.fileId) return;
-
-        await refreshDocumentList();
-
-        if (currentDoc?.id === data.fileId) {
-          const fileResponse = await fetch(getDocumentUrl(data.fileId));
-          if (fileResponse.ok) {
-            const blob = await fileResponse.blob();
-            setCurrentDocumentBlob(blob);
-            setDocKey((prev) => prev + 1);
-          }
-        }
-
-        setUploadStatus(`文件已更新: ${data.fileName || data.fileId}`);
-      } catch (error) {
-        console.error("处理文件更新失败:", error);
-      }
-    });
-
-    eventSource.addEventListener("file_deleted", async (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (!data?.fileId) return;
-
-        if (currentDoc?.id === data.fileId) {
-          setCurrentDoc(null);
-          setCurrentDocumentBlob(null);
-          setCurrentDocId("");
-        }
-
-        await refreshDocumentList();
-        setUploadStatus(`文件已删除: ${data.fileName || data.fileId}`);
-      } catch (error) {
-        console.error("处理文件删除失败:", error);
-      }
-    });
-
-    eventSource.onerror = () => {
-      console.log("SSE 连接断开，将自动重连");
-    };
-
-    return () => eventSource.close();
-  }, [currentDoc?.id, refreshDocumentList]);
-
+  // ===== 页面卸载时清理 =====
   useEffect(() => {
     const handleBeforeUnload = async () => {
       const keepIds = Array.from(uploadedFileIdsRef.current);
@@ -178,12 +126,11 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
       }
 
       uploadedFileIdsRef.current.add(uploaded.id);
-      setUploadStatus(`正在打开: ${uploaded.originalName}`);
 
-      await openAndLoadDocument(uploaded.id);
+      // 只刷新列表，不自动打开
       await refreshDocumentList();
 
-      setUploadStatus(`上传成功: ${uploaded.originalName}`);
+      setUploadStatus(`上传成功: ${uploaded.originalName}, 请点击列表打开`);
     } catch (error: any) {
       setUploadStatus(`上传失败: ${fileName}`);
       setErrorMessage(error.message || "上传失败");
@@ -289,22 +236,6 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
       );
     } catch (error: any) {
       setTestStatus("替换失败: " + error.message);
-    }
-  };
-
-  const handleSave = async () => {
-    if (!currentDocId) {
-      setTestStatus("请先选择文档");
-      return;
-    }
-    setTestStatus("正在保存...");
-    try {
-      const result = await saveDocument(currentDocId);
-      setTestStatus(
-        result.success ? "保存成功，Yjs 同步中..." : "保存失败: " + result.message
-      );
-    } catch (error: any) {
-      setTestStatus("保存失败: " + error.message);
     }
   };
 
@@ -459,19 +390,6 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
                     }}
                   >
                     替换全部
-                  </button>
-                  <button
-                    onClick={handleSave}
-                    style={{
-                      padding: "8px 16px",
-                      borderRadius: "4px",
-                      border: "none",
-                      backgroundColor: "#4CAF50",
-                      color: "white",
-                      cursor: "pointer",
-                    }}
-                  >
-                    保存
                   </button>
                 </div>
                 {testStatus && (
