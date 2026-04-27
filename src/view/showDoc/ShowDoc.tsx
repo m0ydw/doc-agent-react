@@ -423,7 +423,7 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
                       >
                         {findResult.positions.slice(0, 5).map((pos, index) => (
                           <li key={index}>
-                            [{pos.index}] {pos.text.substring(0, 50)}...
+                            [{pos.index}] {pos.text?.substring(0, 50) ?? '(无文本内容)'}...
                           </li>
                         ))}
                       </ul>
