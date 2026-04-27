@@ -79,6 +79,7 @@ export default function Doc({
   zoomPercent = 114,
 }: DocProps) {
   const superdocRef = useRef<SuperDocInstance | null>(null);
+  const upgradedRef = useRef(false);
   const [collabRuntime, setCollabRuntime] =
     useState<CollaborationRuntime | null>(null);
   const runtimeRef = useRef<{ runtime: CollaborationRuntime; docId: string } | null>(null);
@@ -216,10 +217,19 @@ export default function Doc({
               }}
               comments={{ visible: false }}
               trackChanges={{ visible: false }}
-              modules={collabRuntime.modules}
               onReady={(event) => {
                 console.log("[Doc] onReady 触发");
                 superdocRef.current = event.superdoc;
+
+                // 条件满足时升级协作：sync 已完成 + onReady 已触发
+                if (collabRuntime && !upgradedRef.current) {
+                  upgradedRef.current = true;
+                  void (event.superdoc as any).upgradeToCollaboration({
+                    ydoc: collabRuntime.ydoc,
+                    provider: collabRuntime.providerAdapter,
+                  });
+                  console.log("[Doc] 协作模式已由本地编辑器升级");
+                }
 
                 event.superdoc.setZoom(zoomPercent);
                 event.superdoc.setTrackedChangesPreferences({

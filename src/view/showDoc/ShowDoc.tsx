@@ -62,7 +62,7 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
         throw new Error("打开文档失败");
       }
 
-      // 2. 获取文件原始内容（播种用）
+      // 2. 获取文件原始内容（播种到编辑器本地，再通过 upgradeToCollaboration 推入 Y.Doc）
       const seedBlob = await getDocumentSeed(docId);
 
       setCurrentDoc(openRes.document);
