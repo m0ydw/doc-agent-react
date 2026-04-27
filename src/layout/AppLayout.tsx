@@ -31,6 +31,9 @@ export default function AppLayout() {
   // Tab 状态
   const [tabs, setTabs] = useState<TabData[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [closingTabIds, setClosingTabIds] = useState<Set<string>>(new Set());
+  const activeTabIdRef = useRef(activeTabId);
+  activeTabIdRef.current = activeTabId;
 
   // 文件列表（弹窗）
   const [fileList, setFileList] = useState<DocumentInfo[]>([]);
@@ -144,45 +147,84 @@ export default function AppLayout() {
     event.target.value = "";
   }, [uploadFile]);
 
-  // ===== 拖拽上传 =====
-  const handleDragEnter = useCallback((e: React.DragEvent) => {
-    e.preventDefault(); e.stopPropagation();
+  // ===== 拖拽上传（使用 capture 阶段注册，避免被子组件拦截） =====
+  const handleNativeDragEnter = useCallback((e: DragEvent) => {
+    // 只处理文件拖拽，忽略标签拖拽等内部 DnD
+    if (!e.dataTransfer?.types.includes('Files')) return;
+    e.preventDefault();
     dragCounterRef.current++;
     if (dragCounterRef.current === 1) setDragOver(true);
   }, []);
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault(); e.stopPropagation();
+  const handleNativeDragLeave = useCallback((e: DragEvent) => {
+    if (!e.dataTransfer?.types.includes('Files')) return;
+    e.preventDefault();
     dragCounterRef.current--;
     if (dragCounterRef.current === 0) setDragOver(false);
   }, []);
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault(); e.stopPropagation();
+  const handleNativeDragOver = useCallback((e: DragEvent) => {
+    if (!e.dataTransfer?.types.includes('Files')) return;
+    e.preventDefault();
   }, []);
-  const handleDrop = useCallback(async (e: React.DragEvent) => {
-    e.preventDefault(); e.stopPropagation();
+  const handleNativeDrop = useCallback((e: DragEvent) => {
+    if (!e.dataTransfer?.types.includes('Files')) return;
+    e.preventDefault();
+    e.stopPropagation();
     setDragOver(false);
     dragCounterRef.current = 0;
-    const files = Array.from(e.dataTransfer.files);
+    const files = Array.from(e.dataTransfer?.files ?? []);
     const docxFile = files.find(
       (f) => f.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || f.name.toLowerCase().endsWith(".docx")
     );
-    if (docxFile) await uploadFile(docxFile);
+    if (docxFile) uploadFile(docxFile);
     else showStatus("请拖入 .docx 文件", true);
   }, [uploadFile, showStatus]);
+
+  useEffect(() => {
+    // 在 capture 阶段注册，确保优先级高于子组件
+    document.addEventListener("dragenter", handleNativeDragEnter, { capture: true });
+    document.addEventListener("dragleave", handleNativeDragLeave, { capture: true });
+    document.addEventListener("dragover", handleNativeDragOver, { capture: true });
+    document.addEventListener("drop", handleNativeDrop, { capture: true });
+    return () => {
+      document.removeEventListener("dragenter", handleNativeDragEnter, { capture: true });
+      document.removeEventListener("dragleave", handleNativeDragLeave, { capture: true });
+      document.removeEventListener("dragover", handleNativeDragOver, { capture: true });
+      document.removeEventListener("drop", handleNativeDrop, { capture: true });
+    };
+  }, [handleNativeDragEnter, handleNativeDragLeave, handleNativeDragOver, handleNativeDrop]);
 
   // ===== 标签操作 =====
   const handleAddTab = useCallback(() => setShowFileList(true), []);
 
   const handleCloseTab = useCallback((tabId: string) => {
+    // 标记为"正在关闭"触发动画
+    setClosingTabIds((prev) => new Set(prev).add(tabId));
+    // 250ms 后从 state 移除（动画结束后）
+    setTimeout(() => {
+      const currentActive = activeTabIdRef.current;
+      setClosingTabIds((prev) => {
+        const next = new Set(prev);
+        next.delete(tabId);
+        return next;
+      });
+      setTabs((prev) => {
+        const idx = prev.findIndex((t) => t.doc.id === tabId);
+        const newTabs = prev.filter((t) => t.doc.id !== tabId);
+        if (currentActive === tabId && newTabs.length > 0)
+          setActiveTabId(newTabs[Math.min(idx, newTabs.length - 1)].doc.id);
+        else if (newTabs.length === 0) setActiveTabId(null);
+        return newTabs;
+      });
+    }, 250);
+  }, []);
+
+  // 标签拖拽排序
+  const handleReorderTabs = useCallback((ordered: Array<{ id: string; name: string }>) => {
     setTabs((prev) => {
-      const idx = prev.findIndex((t) => t.doc.id === tabId);
-      const newTabs = prev.filter((t) => t.doc.id !== tabId);
-      if (activeTabId === tabId && newTabs.length > 0)
-        setActiveTabId(newTabs[Math.min(idx, newTabs.length - 1)].doc.id);
-      else if (newTabs.length === 0) setActiveTabId(null);
-      return newTabs;
+      const map = new Map(prev.map((t) => [t.doc.id, t]));
+      return ordered.map((item) => map.get(item.id)!).filter(Boolean) as TabData[];
     });
-  }, [activeTabId]);
+  }, []);
 
   // ===== 文件列表弹窗 =====
   const handleSelectDocument = useCallback(async (doc: DocumentInfo) => {
@@ -257,17 +299,13 @@ export default function AppLayout() {
       <TabBar
         tabs={tabs.map((t) => ({ id: t.doc.id, name: t.doc.originalName }))}
         activeTabId={activeTabId}
+        closingTabIds={closingTabIds}
         onSelectTab={setActiveTabId}
         onCloseTab={handleCloseTab}
         onAddTab={handleAddTab}
+        onReorderTabs={handleReorderTabs}
       />
-      <div
-        className={styles.mainContainer}
-        onDragEnter={handleDragEnter}
-        onDragLeave={handleDragLeave}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-      >
+      <div className={styles.mainContainer}>
         {/* Status messages */}
         {(statusMessage || errorMessage) && (
           <div className={`${styles.statusBar} ${errorMessage ? styles.statusBarError : styles.statusBarSuccess}`}>

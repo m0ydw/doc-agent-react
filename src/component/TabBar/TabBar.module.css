@@ -20,6 +20,13 @@
   overflow-x: auto;
 }
 
+/* 每个标签的外层容器 — dnd-kit 应用 transform/transition 在此 */
+.tabWrapper {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
 .tab {
   display: flex;
   align-items: center;
@@ -27,15 +34,18 @@
   padding: 4px 10px;
   height: 32px;
   border-radius: 6px 6px 0 0;
-  cursor: pointer;
+  cursor: grab;
   font-size: 13px;
   color: #666;
   white-space: nowrap;
   border: 1px solid transparent;
-  border-bottom: none;
+  border-bottom: 2px solid transparent;
   transition: all 0.15s ease;
   flex-shrink: 0;
   max-width: 200px;
+  position: relative;
+  user-select: none;
+  background: transparent;
 }
 
 .tab:hover {
@@ -43,16 +53,29 @@
   color: #333;
 }
 
+/* 激活标签 */
 .tabActive {
-  background: #fff;
-  color: #1a1a1a;
+  background: #fff !important;
+  color: #1a1a1a !important;
   border-color: #ddd;
+  border-bottom-color: #0066cc;
   font-weight: 500;
+}
+
+/* 拖拽浮层（DragOverlay）中的标签 */
+.tabOverlay {
+  background: #fff;
+  border-color: #ddd;
+  border-bottom-color: #0066cc;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transform: rotate(2deg);
+  cursor: grabbing;
 }
 
 .tabName {
   overflow: hidden;
   text-overflow: ellipsis;
+  pointer-events: none;
 }
 
 .tabClose {
@@ -103,4 +126,25 @@
   color: #999;
   font-size: 13px;
   padding: 0 12px;
+}
+
+/* ===== 标签关闭动画 ===== */
+.tabClosing {
+  animation: tabClosingAnim 0.25s ease forwards;
+  pointer-events: none;
+}
+
+@keyframes tabClosingAnim {
+  0%   { opacity: 1; transform: scaleX(1); }
+  100% { opacity: 0; transform: scaleX(0); width: 0; padding: 0; margin: 0; overflow: hidden; }
+}
+
+/* ===== 标签入场动画（新打开的标签） ===== */
+@keyframes tabEnterAnim {
+  from { opacity: 0; transform: translateX(-16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.tabWrapper:not(.tabClosing) {
+  animation: tabEnterAnim 0.2s ease;
 }

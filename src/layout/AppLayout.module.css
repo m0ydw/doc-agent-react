@@ -40,6 +40,12 @@
   right: 0;
   bottom: 0;
   overflow: auto;
+  animation: tabFadeIn 0.2s ease;
+}
+
+@keyframes tabFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .findReplacePanel {
