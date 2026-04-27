@@ -1,12 +1,7 @@
-import ShowDoc from "./view/showDoc/ShowDoc";
-import "./App.css";
+import AppLayout from "./layout/AppLayout";
 
 function App() {
-  return (
-    <>
-      <ShowDoc />
-    </>
-  );
+  return <AppLayout />;
 }
 
 export default App;

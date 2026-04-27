@@ -47,8 +47,12 @@ function createCollabRuntime(
       (provider as any).off?.(event as any, handler as any),
     disconnect: () => (provider as any).disconnect?.(),
     destroy: () => provider.destroy(),
-    get synced() { return (provider as any).synced; },
-    get isSynced() { return (provider as any).isSynced; },
+    get synced() {
+      return (provider as any).synced;
+    },
+    get isSynced() {
+      return (provider as any).isSynced;
+    },
   };
 
   return {
@@ -78,7 +82,10 @@ export default function Doc({
   const upgradedRef = useRef(false);
   const [collabRuntime, setCollabRuntime] =
     useState<CollaborationRuntime | null>(null);
-  const runtimeRef = useRef<{ runtime: CollaborationRuntime; docId: string } | null>(null);
+  const runtimeRef = useRef<{
+    runtime: CollaborationRuntime;
+    docId: string;
+  } | null>(null);
   const cleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountCountRef = useRef(0);
 
@@ -146,7 +153,10 @@ export default function Doc({
     });
 
     runtime.provider.on("connection-error", (event: Event) => {
-      console.log("[Doc] y-websocket 错误:", (event as any)?.message ?? "unknown");
+      console.log(
+        "[Doc] y-websocket 错误:",
+        (event as any)?.message ?? "unknown"
+      );
     });
 
     // 诊断性轮询：每500ms检查一次 provider 的同步状态
@@ -154,7 +164,7 @@ export default function Doc({
       if ((runtime.provider as any).synced) {
         clearInterval(syncPoll);
         // 使用函数式更新，避免闭包问题
-        setCollabRuntime(prev => {
+        setCollabRuntime((prev) => {
           if (!prev) {
             console.log("[Doc] 轮询检测到 provider.synced，强制设置 runtime");
             return runtime;

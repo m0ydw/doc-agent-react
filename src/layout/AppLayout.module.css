@@ -1,0 +1,137 @@
+.page {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #eef2f7;
+}
+
+.mainContainer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.splitPanel {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.documentPanel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+}
+
+.tabContentContainer {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.tabContent {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: auto;
+}
+
+.findReplacePanel {
+  flex-shrink: 0;
+  border-top: 1px solid #ddd;
+  background: #fafafa;
+  overflow-y: auto;
+  max-height: 300px;
+}
+
+.findReplaceToggle {
+  width: 100%;
+  padding: 6px 12px;
+  background: #f5f5f5;
+  border: none;
+  border-top: 1px solid #ddd;
+  cursor: pointer;
+  font-size: 12px;
+  color: #666;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.findReplaceToggle:hover {
+  background: #e8e8e8;
+}
+
+/* Drop overlay */
+.dropOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 102, 204, 0.08);
+  border: 3px dashed #0066cc;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.dropOverlayText {
+  background: #fff;
+  padding: 16px 32px;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  font-size: 16px;
+  color: #0066cc;
+  font-weight: 500;
+}
+
+/* Modal backdrop */
+.modalBackdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.modalContent {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+/* Empty state */
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #999;
+  font-size: 14px;
+  gap: 16px;
+}
+
+.emptyState p {
+  margin: 0;
+}

@@ -17,9 +17,13 @@
   color: #5f6368;
   font-size: 14px;
 }
-/* 
+
 :global(.superdoc-toolbar-container) {
-} */
+  position: sticky;
+  top: 0; /* 距离视口顶部的吸附距离 */
+  z-index: 9;
+  width: 100%; /* 与父元素同宽，甚至可以省略 */
+}
 /* 选择工具栏部分 */
 :global(.superdoc__layers.layers) {
   margin: 0 auto;
