@@ -6,7 +6,6 @@ import {
   findText,
   getDocumentList,
   getDocumentSeed,
-  getDocumentUrl,
   openDocumentSession,
   replaceText,
   uploadDocuments,

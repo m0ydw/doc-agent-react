@@ -51,8 +51,8 @@ function createCollabRuntime(
       (provider as any).off?.(event as any, handler as any),
     disconnect: () => (provider as any).disconnect?.(),
     destroy: () => provider.destroy(),
-    synced: (provider as any).synced,
-    isSynced: (provider as any).isSynced,
+    get synced() { return (provider as any).synced; },
+    get isSynced() { return (provider as any).isSynced; },
   };
 
   return {
@@ -81,6 +81,24 @@ export default function Doc({
   const superdocRef = useRef<SuperDocInstance | null>(null);
   const [collabRuntime, setCollabRuntime] =
     useState<CollaborationRuntime | null>(null);
+  const runtimeRef = useRef<{ runtime: CollaborationRuntime; docId: string } | null>(null);
+  const cleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountCountRef = useRef(0);
+
+  function destroyRuntime() {
+    if (cleanupTimerRef.current) {
+      clearTimeout(cleanupTimerRef.current);
+      cleanupTimerRef.current = null;
+    }
+    if (runtimeRef.current) {
+      console.log("[Doc] 销毁协作运行时, room:", runtimeRef.current.docId);
+      runtimeRef.current.runtime.provider.destroy();
+      runtimeRef.current.runtime.ydoc.destroy();
+      runtimeRef.current = null;
+    }
+    setCollabRuntime(null);
+    mountCountRef.current = 0;
+  }
 
   const collaborationUser = useMemo(
     () => ({
@@ -92,41 +110,78 @@ export default function Doc({
 
   useEffect(() => {
     if (!docId) {
-      setCollabRuntime(null);
+      destroyRuntime();
       return;
     }
 
-    console.log(
-      "[Doc] 初始化协作运行时, room:",
-      docId,
-      "ws:",
-      collaborationWsUrl
-    );
+    // 记录本次挂载的序号
+    const mountId = ++mountCountRef.current;
+
+    // 复用已有的同名 runtime（处理 StrictMode 二次挂载）
+    if (runtimeRef.current && runtimeRef.current.docId === docId) {
+      return;
+    }
+
+    // docId 变化 → 销毁旧 runtime
+    if (runtimeRef.current && runtimeRef.current.docId !== docId) {
+      destroyRuntime();
+    }
+
+    // 创建新 runtime
     const runtime = createCollabRuntime(docId, collaborationWsUrl);
+    runtimeRef.current = { runtime, docId };
+
+    // 仅通过 sync 事件激活协作
+    runtime.provider.on("sync", (synced: boolean) => {
+      console.log("[Doc] Hocuspocus 同步:", synced);
+      if (synced) {
+        setCollabRuntime(runtime);
+        console.log("[Doc] 协作运行时已就绪");
+      }
+    });
 
     runtime.provider.on("status", (event: { status: string }) => {
       console.log("[Doc] Hocuspocus 状态:", event.status);
     });
-    runtime.provider.on("sync", (synced: boolean) => {
-      console.log("[Doc] Hocuspocus 同步:", synced);
-    });
-    runtime.provider.on("connect", () => {
-      console.log("[Doc] Hocuspocus 已连接");
-    });
+
     runtime.provider.on("disconnect", () => {
       console.log("[Doc] Hocuspocus 已断开");
     });
+
     runtime.provider.on("error", (error: Error) => {
       console.log("[Doc] Hocuspocus 错误:", error.message);
     });
 
-    setCollabRuntime(runtime);
+    // 诊断性轮询：每500ms检查一次 provider 的同步状态
+    const syncPoll = setInterval(() => {
+      if ((runtime.provider as any).synced) {
+        clearInterval(syncPoll);
+        // 使用函数式更新，避免闭包问题
+        setCollabRuntime(prev => {
+          if (!prev) {
+            console.log("[Doc] 轮询检测到 provider.synced，强制设置 runtime");
+            return runtime;
+          }
+          return prev;
+        });
+      }
+    }, 500);
+
+    // 取消上一次的延时清理
+    if (cleanupTimerRef.current) {
+      clearTimeout(cleanupTimerRef.current);
+      cleanupTimerRef.current = null;
+    }
 
     return () => {
-      console.log("[Doc] 销毁协作运行时, room:", docId);
-      runtime.provider.destroy();
-      runtime.ydoc.destroy();
-      setCollabRuntime(null);
+      clearInterval(syncPoll);
+      // 只有当前挂载的序号与全局序号一致时，才真正销毁
+      // StrictMode 二次挂载后 mountId 不会等于 mountCountRef.current
+      cleanupTimerRef.current = setTimeout(() => {
+        if (mountCountRef.current === mountId) {
+          destroyRuntime();
+        }
+      }, 100);
     };
   }, [docId, collaborationWsUrl]);
 
@@ -142,20 +197,16 @@ export default function Doc({
     return result instanceof Blob ? result : null;
   };
 
-  const shouldWaitForCollaboration = Boolean(docId) && !collabRuntime;
-
   return (
     <div className={styles.viewerShell}>
       {documentData ? (
         <div className={styles.editorRoot}>
-          {shouldWaitForCollaboration ? (
-            <div className={styles.loading}>正在初始化协作连接...</div>
-          ) : (
+          {collabRuntime ? (
             <SuperDocEditor
               document={documentData}
               format="docx"
-              documentMode="viewing"
-              role="viewer"
+              documentMode="editing"
+              role="editor"
               contained={false}
               viewOptions={{ layout: "print" }}
               user={collaborationUser}
@@ -165,24 +216,10 @@ export default function Doc({
               }}
               comments={{ visible: false }}
               trackChanges={{ visible: false }}
-              // modules={collabRuntime?.modules}
+              modules={collabRuntime.modules}
               onReady={(event) => {
                 console.log("[Doc] onReady 触发");
                 superdocRef.current = event.superdoc;
-
-                // 防守式补偿：若插件未在初始化阶段挂载，升级到协作模式。
-                if (
-                  docId &&
-                  collabRuntime &&
-                  !event.superdoc.ydoc &&
-                  typeof (event.superdoc as any).upgradeToCollaboration ===
-                    "function"
-                ) {
-                  void (event.superdoc as any).upgradeToCollaboration({
-                    ydoc: collabRuntime.ydoc,
-                    provider: collabRuntime.providerAdapter,
-                  });
-                }
 
                 event.superdoc.setZoom(zoomPercent);
                 event.superdoc.setTrackedChangesPreferences({
@@ -214,6 +251,8 @@ export default function Doc({
                 onLoadError?.(`存在不支持内容：${unsupportedSummary}`);
               }}
             />
+          ) : (
+            <div className={styles.loading}>正在进入协作房间…</div>
           )}
         </div>
       ) : null}
