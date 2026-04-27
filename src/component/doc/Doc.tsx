@@ -2,7 +2,7 @@ import { SuperDocEditor } from "@superdoc-dev/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SuperDocInstance, SuperDocModules } from "@superdoc-dev/react";
 import * as Y from "yjs";
-import { HocuspocusProvider } from "@hocuspocus/provider";
+import { WebsocketProvider } from "y-websocket";
 import "@superdoc-dev/react/style.css";
 import styles from "./Doc.module.css";
 
@@ -19,7 +19,7 @@ interface DocProps {
 
 type CollaborationRuntime = {
   ydoc: Y.Doc;
-  provider: HocuspocusProvider;
+  provider: WebsocketProvider;
   providerAdapter: {
     awareness?: object;
     on?: (event: string, handler: Function) => void;
@@ -37,11 +37,7 @@ function createCollabRuntime(
   wsUrl: string
 ): CollaborationRuntime {
   const ydoc = new Y.Doc();
-  const provider = new HocuspocusProvider({
-    url: wsUrl,
-    name: docId,
-    document: ydoc,
-  });
+  const provider = new WebsocketProvider(wsUrl, docId, ydoc);
 
   const providerAdapter = {
     awareness: provider.awareness ?? undefined,
@@ -134,7 +130,7 @@ export default function Doc({
 
     // 仅通过 sync 事件激活协作
     runtime.provider.on("sync", (synced: boolean) => {
-      console.log("[Doc] Hocuspocus 同步:", synced);
+      console.log("[Doc] y-websocket 同步:", synced);
       if (synced) {
         setCollabRuntime(runtime);
         console.log("[Doc] 协作运行时已就绪");
@@ -142,15 +138,15 @@ export default function Doc({
     });
 
     runtime.provider.on("status", (event: { status: string }) => {
-      console.log("[Doc] Hocuspocus 状态:", event.status);
+      console.log("[Doc] y-websocket 状态:", event.status);
     });
 
-    runtime.provider.on("disconnect", () => {
-      console.log("[Doc] Hocuspocus 已断开");
+    runtime.provider.on("connection-close", () => {
+      console.log("[Doc] y-websocket 已断开");
     });
 
-    runtime.provider.on("error", (error: Error) => {
-      console.log("[Doc] Hocuspocus 错误:", error.message);
+    runtime.provider.on("connection-error", (event: Event) => {
+      console.log("[Doc] y-websocket 错误:", (event as any)?.message ?? "unknown");
     });
 
     // 诊断性轮询：每500ms检查一次 provider 的同步状态
