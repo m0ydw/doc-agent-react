@@ -54,24 +54,21 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
     }
   }, []);
 
-  const openAndLoadDocument = useCallback(
-    async (docId: string) => {
-      // 1. 获取协作房间信息
-      const openRes = await openDocumentSession(docId);
-      if (!openRes.success || !openRes.document) {
-        throw new Error("打开文档失败");
-      }
+  const openAndLoadDocument = useCallback(async (docId: string) => {
+    // 1. 获取协作房间信息
+    const openRes = await openDocumentSession(docId);
+    if (!openRes.success || !openRes.document) {
+      throw new Error("打开文档失败");
+    }
 
-      // 2. 获取文件原始内容（播种到编辑器本地，再通过 upgradeToCollaboration 推入 Y.Doc）
-      const seedBlob = await getDocumentSeed(docId);
+    // 2. 获取文件原始内容（播种到编辑器本地，再通过 upgradeToCollaboration 推入 Y.Doc）
+    const seedBlob = await getDocumentSeed(docId);
 
-      setCurrentDoc(openRes.document);
-      setCurrentDocumentBlob(seedBlob);
-      setCurrentDocId(openRes.document.id);
-      setDocKey((prev) => prev + 1);
-    },
-    []
-  );
+    setCurrentDoc(openRes.document);
+    setCurrentDocumentBlob(seedBlob);
+    setCurrentDocId(openRes.document.id);
+    setDocKey((prev) => prev + 1);
+  }, []);
 
   useEffect(() => {
     void refreshDocumentList();
@@ -90,7 +87,9 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, []);
 
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const files = Array.from(event.target.files || []);
     if (files.length === 0) return;
 
@@ -201,6 +200,7 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
       setFindResult(result);
       setReplaceResult(null);
       setTestStatus(`找到 ${result.count} 处匹配`);
+      console.log(result);
     } catch (error: any) {
       setTestStatus("查找失败: " + error.message);
     }
@@ -213,9 +213,16 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
     }
     setTestStatus("正在替换第一个匹配...");
     try {
-      const result = await replaceText(currentDocId, findPattern, replaceWith, false);
+      const result = await replaceText(
+        currentDocId,
+        findPattern,
+        replaceWith,
+        false
+      );
       setReplaceResult(result);
-      setTestStatus(result.success ? "替换完成 (1处)" : "替换失败: " + result.message);
+      setTestStatus(
+        result.success ? "替换完成 (1处)" : "替换失败: " + result.message
+      );
     } catch (error: any) {
       setTestStatus("替换失败: " + error.message);
     }
@@ -228,10 +235,17 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
     }
     setTestStatus("正在替换所有匹配...");
     try {
-      const result = await replaceText(currentDocId, findPattern, replaceWith, true);
+      const result = await replaceText(
+        currentDocId,
+        findPattern,
+        replaceWith,
+        true
+      );
       setReplaceResult(result);
       setTestStatus(
-        result.success ? `替换完成 (${result.replaced}处)` : "替换失败: " + result.message
+        result.success
+          ? `替换完成 (${result.replaced}处)`
+          : "替换失败: " + result.message
       );
     } catch (error: any) {
       setTestStatus("替换失败: " + error.message);
@@ -254,13 +268,18 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
               >
                 选择文件
               </button>
-              <button onClick={() => setShowList(true)} className={styles.uploadButton}>
+              <button
+                onClick={() => setShowList(true)}
+                className={styles.uploadButton}
+              >
                 文件列表
               </button>
               <button
                 onClick={() => setShowFindReplace(!showFindReplace)}
                 className={styles.uploadButton}
-                style={{ backgroundColor: showFindReplace ? "#4CAF50" : undefined }}
+                style={{
+                  backgroundColor: showFindReplace ? "#4CAF50" : undefined,
+                }}
               >
                 查找替换
               </button>
@@ -288,9 +307,19 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
                 border: "1px solid #ddd",
               }}
             >
-              <h3 style={{ margin: "0 0 12px 0", fontSize: "16px" }}>查找替换测试</h3>
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <h3 style={{ margin: "0 0 12px 0", fontSize: "16px" }}>
+                查找替换测试
+              </h3>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "12px",
+                }}
+              >
+                <div
+                  style={{ display: "flex", gap: "8px", alignItems: "center" }}
+                >
                   <label style={{ width: "80px" }}>文档ID:</label>
                   <input
                     type="text"
@@ -320,7 +349,9 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
                     使用当前文档
                   </button>
                 </div>
-                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <div
+                  style={{ display: "flex", gap: "8px", alignItems: "center" }}
+                >
                   <label style={{ width: "80px" }}>查找:</label>
                   <input
                     type="text"
@@ -335,7 +366,9 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
                     }}
                   />
                 </div>
-                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <div
+                  style={{ display: "flex", gap: "8px", alignItems: "center" }}
+                >
                   <label style={{ width: "80px" }}>替换为:</label>
                   <input
                     type="text"
@@ -423,7 +456,8 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
                       >
                         {findResult.positions.slice(0, 5).map((pos, index) => (
                           <li key={index}>
-                            [{pos.index}] {pos.text?.substring(0, 50) ?? '(无文本内容)'}...
+                            [{pos.index}]{" "}
+                            {pos.text?.substring(0, 50) ?? "(无文本内容)"}...
                           </li>
                         ))}
                       </ul>
@@ -435,7 +469,9 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
                     style={{
                       marginTop: "8px",
                       padding: "8px",
-                      backgroundColor: replaceResult.success ? "#fff3e0" : "#ffebee",
+                      backgroundColor: replaceResult.success
+                        ? "#fff3e0"
+                        : "#ffebee",
                       borderRadius: "4px",
                     }}
                   >
@@ -469,7 +505,9 @@ export default function ShowDoc({ maxSize = 10 }: FileUploadProps) {
               onClear={handleClear}
             />
           ) : (
-            !showList && <div className={styles.placeholder}>请上传 DOC 文件</div>
+            !showList && (
+              <div className={styles.placeholder}>请上传 DOC 文件</div>
+            )
           )}
         </div>
       </div>
