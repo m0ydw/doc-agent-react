@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DocumentViewer, DocumentList } from "@/component";
+import { DocumentViewer } from "@/component";
 import TabBar from "@/component/TabBar/TabBar";
 import AgentPanel from "@/component/AgentPanel/AgentPanel";
 import ResizeHandle from "@/component/ResizeHandle/ResizeHandle";
 import {
   cleanupDocuments,
-  deleteDocument,
   findText,
   getDocumentList,
   getDocumentSeed,
@@ -27,6 +26,7 @@ export default function AppLayout() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadedFileIdsRef = useRef<Set<string>>(new Set());
   const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoInitRef = useRef(false);
 
   // Tab 状态
   const [tabs, setTabs] = useState<TabData[]>([]);
@@ -35,9 +35,8 @@ export default function AppLayout() {
   const activeTabIdRef = useRef(activeTabId);
   activeTabIdRef.current = activeTabId;
 
-  // 文件列表（弹窗）
+  // 文件列表（供自动初始化使用）
   const [fileList, setFileList] = useState<DocumentInfo[]>([]);
-  const [showFileList, setShowFileList] = useState(false);
 
   // Feedback messages
   const [statusMessage, setStatusMessage] = useState("");
@@ -90,7 +89,37 @@ export default function AppLayout() {
     if (res.success) setFileList(res.documents);
   }, []);
 
+  // 启动时获取文件列表
   useEffect(() => { void refreshFileList(); }, [refreshFileList]);
+
+  // 自动初始化所有已上传文档为标签（仅执行一次）
+  useEffect(() => {
+    if (autoInitRef.current || fileList.length === 0) return;
+    autoInitRef.current = true;
+
+    const autoOpenAll = async () => {
+      const results = await Promise.all(
+        fileList.map(async (doc) => {
+          try {
+            const openRes = await openDocumentSession(doc.id);
+            if (!openRes.success || !openRes.document) return null;
+            const seedBlob = await getDocumentSeed(doc.id);
+            return { doc: openRes.document, blob: seedBlob } as TabData;
+          } catch (err) {
+            console.error("自动打开文档失败:", doc.originalName, err);
+            return null;
+          }
+        })
+      );
+      const newTabs = results.filter((t): t is TabData => t !== null);
+      setTabs(newTabs);
+      if (newTabs.length > 0) {
+        setActiveTabId(newTabs[0].doc.id);
+      }
+    };
+
+    autoOpenAll();
+  }, [fileList]);
 
   // ===== 页面卸载时清理 =====
   useEffect(() => {
@@ -194,7 +223,9 @@ export default function AppLayout() {
   }, [handleNativeDragEnter, handleNativeDragLeave, handleNativeDragOver, handleNativeDrop]);
 
   // ===== 标签操作 =====
-  const handleAddTab = useCallback(() => setShowFileList(true), []);
+  const handleAddTab = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
 
   const handleCloseTab = useCallback((tabId: string) => {
     // 标记为"正在关闭"触发动画
@@ -225,31 +256,6 @@ export default function AppLayout() {
       return ordered.map((item) => map.get(item.id)!).filter(Boolean) as TabData[];
     });
   }, []);
-
-  // ===== 文件列表弹窗 =====
-  const handleSelectDocument = useCallback(async (doc: DocumentInfo) => {
-    try {
-      showStatus(`正在打开: ${doc.originalName}`);
-      await openAndAddTab(doc.id);
-      showStatus(`已打开: ${doc.originalName}`);
-    } catch (error: any) {
-      showStatus(error.message || "打开文档失败", true);
-    } finally { setShowFileList(false); }
-  }, [openAndAddTab, showStatus]);
-
-  const handleDeleteDocument = useCallback(async (id: string, _fileName: string) => {
-    try {
-      await deleteDocument(id);
-      setTabs((prev) => {
-        const filtered = prev.filter((t) => t.doc.id !== id);
-        if (filtered.length !== prev.length && activeTabId === id)
-          setActiveTabId(filtered.length > 0 ? filtered[0].doc.id : null);
-        return filtered;
-      });
-      await refreshFileList();
-      showStatus("文件已删除");
-    } catch { showStatus("删除失败", true); }
-  }, [activeTabId, refreshFileList, showStatus]);
 
   // ===== 分隔条拖拽 =====
   const handleResize = useCallback((deltaX: number) => {
@@ -419,21 +425,6 @@ export default function AppLayout() {
       {/* Hidden file input */}
       <input ref={fileInputRef} type="file" accept=".doc,.docx" onChange={handleFileChange} className={styles.hiddenInput} />
 
-      {/* File list modal */}
-      {showFileList && (
-        <div className={styles.modalBackdrop} onClick={() => setShowFileList(false)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalInner}>
-              <DocumentList
-                documents={fileList}
-                onSelectDocument={handleSelectDocument}
-                onDeleteDocument={handleDeleteDocument}
-                onClose={() => setShowFileList(false)}
-              />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
