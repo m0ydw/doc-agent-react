@@ -224,11 +224,17 @@ export default function Doc({
                 // 条件满足时升级协作：sync 已完成 + onReady 已触发
                 if (collabRuntime && !upgradedRef.current) {
                   upgradedRef.current = true;
-                  void (event.superdoc as any).upgradeToCollaboration({
-                    ydoc: collabRuntime.ydoc,
-                    provider: collabRuntime.providerAdapter,
-                  });
-                  console.log("[Doc] 协作模式已由本地编辑器升级");
+                  (async () => {
+                    try {
+                      await (event.superdoc as any).upgradeToCollaboration({
+                        ydoc: collabRuntime.ydoc,
+                        provider: collabRuntime.providerAdapter,
+                      });
+                      console.log("[Doc] 协作模式已由本地编辑器升级");
+                    } catch (e) {
+                      console.error("[Doc] upgradeToCollaboration 失败:", e);
+                    }
+                  })();
                 }
 
                 event.superdoc.setZoom(zoomPercent);
