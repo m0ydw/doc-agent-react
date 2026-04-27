@@ -135,3 +135,161 @@
 .emptyState p {
   margin: 0;
 }
+
+/* ===== Status bar ===== */
+
+.statusBar {
+  padding: 4px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid #ddd;
+  flex-shrink: 0;
+  transition: opacity 0.3s ease;
+}
+
+.statusBarError {
+  background: #fff0f0;
+  color: #d32f2f;
+}
+
+.statusBarSuccess {
+  background: #f0f8f0;
+  color: #2e7d32;
+}
+
+/* ===== Find/Replace panel ===== */
+
+.findReplaceInner {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.findReplaceRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.findReplaceLabel {
+  width: 60px;
+  flex-shrink: 0;
+}
+
+.findReplaceInput {
+  flex: 1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  font-size: 13px;
+}
+
+.findReplaceActions {
+  display: flex;
+  gap: 6px;
+}
+
+.btnFind {
+  padding: 4px 12px;
+  border-radius: 4px;
+  border: none;
+  background: #2196f3;
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.btnFind:hover {
+  background: #1976d2;
+}
+
+.btnReplace {
+  padding: 4px 12px;
+  border-radius: 4px;
+  border: none;
+  background: #ff9800;
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.btnReplace:hover {
+  background: #f57c00;
+}
+
+.btnReplaceAll {
+  padding: 4px 12px;
+  border-radius: 4px;
+  border: none;
+  background: #f44336;
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.btnReplaceAll:hover {
+  background: #d32f2f;
+}
+
+/* Results */
+
+.resultStatus {
+  margin: 0;
+  padding: 4px 8px;
+  background: #e8f5e9;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.resultFind {
+  padding: 4px 8px;
+  background: #e3f2fd;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.resultReplace {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.resultReplaceSuccess {
+  background: #fff3e0;
+}
+
+.resultReplaceFailure {
+  background: #ffebee;
+}
+
+.resultList {
+  margin: 4px 0 0 0;
+  padding-left: 16px;
+}
+
+/* Agent panel wrapper */
+
+.agentWrapper {
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.agentWrapperCollapsed {
+  width: 32px;
+  transition: width 0.2s ease;
+}
+
+.agentWrapperExpanded {
+  transition: none;
+}
+
+/* Hidden file input */
+.hiddenInput {
+  display: none;
+}
+
+/* Modal inner padding */
+.modalInner {
+  padding: 8px 0;
+}
