@@ -1,27 +1,132 @@
 /**
- * Agent 对话面板 — antd 组件化版本
+ * Agent 对话面板 — Trae 风格流式输出
  *
- * 功能：
- * - 结构化事件驱动渲染（phase/thought/content/tool/summary）
- * - antd Collapse 展示各阶段，思考过程可折叠
- * - antd Tag 展示工具调用
- * - antd Result 展示最终总结
- * - 流式输出支持
+ * 数据结构：扁平块列表（text / thought / tool_call / summary）
+ * 流式输出：即时显示文本，thought 可折叠
+ * 渲染：react-markdown 支持 LLM Markdown 输出
+ * 原则：无 emoji、无 Card/Result 包装、纯文字叙述
  */
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Collapse, Tag, Result, Spin, Button, Tooltip, Input, Typography, Flex, Card, ConfigProvider, theme } from "antd";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import type { Components } from "react-markdown";
+import {
+  Collapse, Tag, Spin, Button, Tooltip, Input, Flex,
+  ConfigProvider, theme,
+} from "antd";
 import type { InputRef } from "antd";
 import {
-  RobotOutlined,
-  UserOutlined,
-  RightOutlined,
-  ReloadOutlined,
-  SendOutlined,
-  StopOutlined,
+  RobotOutlined, UserOutlined,
+  RightOutlined, ReloadOutlined,
+  SendOutlined, StopOutlined,
 } from "@ant-design/icons";
+import { sendAgentMessage, resetAgent, getAgentStatus } from "@/api/aiApi";
+import type { AgentEvent, AgentMode } from "@/api/aiApi";
+import styles from "./AgentPanel.module.css";
 
+// ================================================================
+// 扁平块类型定义
+// ================================================================
+
+type MsgBlock =
+  | { type: "text"; content: string }
+  | { type: "thought"; lines: string[] }
+  | { type: "tool_call"; tool: string; args: string; result: string }
+  | { type: "summary"; content: string };
+
+interface AssistantMsg {
+  role: "assistant";
+  blocks: MsgBlock[];
+  streaming: boolean;
+}
+
+type Message =
+  | { role: "user"; content: string }
+  | AssistantMsg;
+
+interface BuildState {
+  blocks: MsgBlock[];
+  currentThought: string[] | null;
+  activePhase: string | null;
+}
+
+// ================================================================
+// 工具标签
+// ================================================================
+
+const TOOL_LABELS: Record<string, string> = {
+  sdk_get_text: "读取全文",
+  sdk_find_text: "查找文本",
+  sdk_replace_text: "替换文本",
+  sdk_replace_all: "全部替换",
+  sdk_save: "保存文档",
+};
+
+function toolLabel(tool: string): string {
+  return TOOL_LABELS[tool] || tool;
+}
+
+// ================================================================
+// react-markdown 自定义组件（暗色主题适配）
+// ================================================================
+
+const mdComponents: Components = {
+  a: ({ href, children }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: "#66b3ff" }}>
+      {children}
+    </a>
+  ),
+  code: ({ className, children, ...props }) => {
+    const isInline = !className;
+    if (isInline) {
+      return (
+        <code
+          style={{
+            background: "#2a2a4a",
+            padding: "1px 5px",
+            borderRadius: 3,
+            fontSize: "0.9em",
+            color: "#e0e0e0",
+          }}
+        >
+          {children}
+        </code>
+      );
+    }
+    return (
+      <pre
+        style={{
+          background: "#2a2a4a",
+          padding: 10,
+          borderRadius: 6,
+          overflow: "auto",
+          fontSize: 12,
+          lineHeight: 1.5,
+        }}
+      >
+        <code className={className} {...props}>
+          {children}
+        </code>
+      </pre>
+    );
+  },
+  // 列表样式
+  ul: ({ children }) => <ul style={{ paddingLeft: 20, margin: "4px 0" }}>{children}</ul>,
+  ol: ({ children }) => <ol style={{ paddingLeft: 20, margin: "4px 0" }}>{children}</ol>,
+  li: ({ children }) => <li style={{ margin: "2px 0" }}>{children}</li>,
+  // 段落样式 — 紧凑，无额外 margin
+  p: ({ children }) => <div style={{ margin: "4px 0", lineHeight: 1.6 }}>{children}</div>,
+  // 标题
+  h1: ({ children }) => <div style={{ fontSize: 15, fontWeight: 600, margin: "8px 0 4px", color: "#fff" }}>{children}</div>,
+  h2: ({ children }) => <div style={{ fontSize: 14, fontWeight: 600, margin: "6px 0 4px", color: "#fff" }}>{children}</div>,
+  h3: ({ children }) => <div style={{ fontSize: 13, fontWeight: 600, margin: "4px 0", color: "#fff" }}>{children}</div>,
+};
+
+// ================================================================
 // Agent 面板暗色主题
-const agentTheme: Parameters<typeof ConfigProvider>[0]['theme'] = {
+// ================================================================
+
+const agentTheme: Parameters<typeof ConfigProvider>[0]["theme"] = {
   algorithm: theme.darkAlgorithm,
   token: {
     colorPrimary: "#0066cc",
@@ -37,9 +142,10 @@ const agentTheme: Parameters<typeof ConfigProvider>[0]['theme'] = {
     fontSizeSM: 12,
   },
 };
-import { sendAgentMessage, resetAgent, getAgentStatus } from "@/api/aiApi";
-import type { AgentEvent, SummaryEvent } from "@/api/aiApi";
-import styles from "./AgentPanel.module.css";
+
+// ================================================================
+// 组件
+// ================================================================
 
 interface AgentPanelProps {
   collapsed: boolean;
@@ -47,93 +153,58 @@ interface AgentPanelProps {
   activeDocId?: string | null;
 }
 
-// ================================================================
-// 阶段数据结构
-// ================================================================
-
-interface PhaseData {
-  name: string;
-  label: string;
-  thoughtLines: string[];
-  contentLines: string[];
-  tools: { tool: string; args: string; result: string }[];
-  status: "active" | "completed" | "failed";
-}
-
-const PHASE_LABELS: Record<string, string> = {
-  analyze: "分析需求",
-  plan: "制定计划",
-  execute: "执行操作",
-  validate: "验证结果",
-};
-
-const PHASE_ICONS: Record<string, string> = {
-  analyze: "🔍",
-  plan: "📋",
-  execute: "⚡",
-  validate: "✅",
-};
-
-// 工具名 → antd Tag 颜色映射
-const TOOL_COLORS: Record<string, string> = {
-  sdk_get_text: "blue",
-  sdk_find_text: "cyan",
-  sdk_replace_text: "orange",
-  sdk_replace_all: "volcano",
-  sdk_save: "green",
-};
-
-function toolColor(tool: string): string {
-  return TOOL_COLORS[tool] || "default";
-}
-
-function toolLabel(tool: string): string {
-  const map: Record<string, string> = {
-    sdk_get_text: "读取全文",
-    sdk_find_text: "查找文本",
-    sdk_replace_text: "替换文本",
-    sdk_replace_all: "全部替换",
-    sdk_save: "保存文档",
-  };
-  return map[tool] || tool;
-}
-
-// ================================================================
-// 组件
-// ================================================================
-
-export default function AgentPanel({ collapsed, onToggleCollapse, activeDocId }: AgentPanelProps) {
+export default function AgentPanel({
+  collapsed,
+  onToggleCollapse,
+  activeDocId,
+}: AgentPanelProps) {
   const [inputText, setInputText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [agentMode, setAgentMode] = useState<AgentMode>("workflow");
   const [agentReady, setAgentReady] = useState(false);
-  const [agentStatus, setAgentStatus] = useState<{ memory: number; docs: number } | null>(null);
+  const [agentStatus, setAgentStatus] = useState<{
+    memory: number;
+    docs: number;
+  } | null>(null);
 
-  // 消息列表：用户消息 → Agent 响应（含多个 phase + summary）
-  const [messages, setMessages] = useState<
-    Array<
-      | { role: "user"; content: string }
-      | {
-          role: "assistant";
-          phases: PhaseData[];
-          summary: SummaryEvent | null;
-          streaming: boolean;
-        }
-    >
-  >([]);
+  // 消息列表（驱动渲染）
+  const [messages, setMessages] = useState<Message[]>([]);
 
-  // 当前正在构建的 assistant 消息（流式写入）
-  const currentAssistantRef = useRef<{
-    phases: PhaseData[];
-    currentPhase: PhaseData | null;
-    summary: SummaryEvent | null;
-  }>({ phases: [], currentPhase: null, summary: null });
-
+  // --- Refs ---
+  const stateRef = useRef<BuildState>({
+    blocks: [],
+    currentThought: null,
+    activePhase: null,
+  });
   const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<InputRef>(null);
 
+  // --- 渲染提交（快照模式） ---
+  // 关键：在调用时拍下 blocks 快照，避免 React 批处理后 updater 读到被后续事件改过的引用
+  const commitRender = useCallback(() => {
+    const snapshot = stateRef.current.blocks.map((b) => {
+      if (b.type === "thought") return { ...b, lines: [...b.lines] };
+      if (b.type === "tool_call") return { ...b };
+      return { ...b };
+    });
+    setMessages((prev) => {
+      const updated = [...prev];
+      const last = updated[updated.length - 1];
+      if (last && last.role === "assistant") {
+        updated[updated.length - 1] = {
+          ...last,
+          blocks: snapshot,
+        };
+      }
+      return updated;
+    });
+  }, []);
+
   // 启动时检查 Agent 状态
-  useEffect(() => { checkAgentStatus(); }, []);
+  useEffect(() => {
+    checkAgentStatus();
+  }, []);
 
   // 自动滚动
   useEffect(() => {
@@ -148,7 +219,10 @@ export default function AgentPanel({ collapsed, onToggleCollapse, activeDocId }:
     const status = await getAgentStatus();
     if (status) {
       setAgentReady(status.initialized);
-      setAgentStatus({ memory: status.memoryEntries, docs: status.availableDocs });
+      setAgentStatus({
+        memory: status.memoryEntries,
+        docs: status.availableDocs,
+      });
     }
   };
 
@@ -156,133 +230,147 @@ export default function AgentPanel({ collapsed, onToggleCollapse, activeDocId }:
   // 事件处理
   // ================================================================
 
-  const handleEvent = useCallback((event: AgentEvent) => {
-    const state = currentAssistantRef.current;
+  const handleEvent = useCallback(
+    (event: AgentEvent) => {
+      const state = stateRef.current;
 
-    switch (event.type) {
-      // 阶段开始 — 创建新阶段
-      case "phase_start": {
-        const newPhase: PhaseData = {
-          name: event.phase,
-          label: PHASE_LABELS[event.phase] || event.phase,
-          thoughtLines: [],
-          contentLines: [],
-          tools: [],
-          status: "active",
-        };
-        state.currentPhase = newPhase;
-        state.phases.push(newPhase);
-        // 触发重渲染
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last && last.role === "assistant") {
-            updated[updated.length - 1] = {
-              ...last,
-              phases: [...state.phases],
-            };
+      switch (event.type) {
+        // 阶段开始 → 显示阶段标签
+        case "phase_start": {
+          state.activePhase = event.phase;
+          commitRender();
+          break;
+        }
+
+        // 阶段结束 → 移除阶段标签
+        case "phase_end": {
+          if (state.activePhase === event.phase) {
+            state.activePhase = null;
           }
-          return updated;
-        });
-        break;
-      }
-
-      // 阶段结束
-      case "phase_end": {
-        if (state.currentPhase && state.currentPhase.name === event.phase) {
-          state.currentPhase.status = "completed";
-          state.currentPhase = null;
+          commitRender();
+          break;
         }
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last && last.role === "assistant") {
-            updated[updated.length - 1] = {
-              ...last,
-              phases: [...state.phases],
-            };
+
+        // 思考过程 → 追加到当前 thought 块
+        case "thought": {
+          if (!state.currentThought) {
+            state.currentThought = [];
+            state.blocks.push({
+              type: "thought",
+              lines: state.currentThought,
+            });
           }
-          return updated;
-        });
-        break;
-      }
-
-      // 思考过程
-      case "thought": {
-        if (state.currentPhase) {
-          state.currentPhase.thoughtLines.push(event.content);
-          triggerRender(state, setMessages);
+          state.currentThought.push(event.content);
+          commitRender();
+          break;
         }
-        break;
-      }
 
-      // 用户可见内容
-      case "content": {
-        if (state.currentPhase) {
-          state.currentPhase.contentLines.push(event.content);
-          triggerRender(state, setMessages);
+        // 用户可见内容 → 关闭 thought，追加 text 块
+        case "content": {
+          state.currentThought = null;
+          state.blocks.push({ type: "text", content: event.content });
+          commitRender();
+          break;
         }
-        break;
-      }
 
-      // 工具调用
-      case "tool_call": {
-        if (state.currentPhase) {
-          state.currentPhase.tools.push({
+        // React Agent 模式流式文本 → 追加到当前 text 块（合并连续输出）
+        case "chat_content": {
+          state.currentThought = null;
+          const lastBlock = state.blocks[state.blocks.length - 1];
+          if (lastBlock && lastBlock.type === "text") {
+            (lastBlock as Extract<MsgBlock, { type: "text" }>).content += event.content;
+          } else {
+            state.blocks.push({ type: "text", content: event.content });
+          }
+          commitRender();
+          break;
+        }
+
+        // 工具调用
+        case "tool_call": {
+          state.currentThought = null;
+          state.blocks.push({
+            type: "tool_call",
             tool: event.tool,
             args: event.args,
             result: "",
           });
-          triggerRender(state, setMessages);
+          commitRender();
+          break;
         }
-        break;
-      }
 
-      // 工具执行结果
-      case "tool_result": {
-        if (state.currentPhase && state.currentPhase.tools.length > 0) {
-          const lastTool = state.currentPhase.tools[state.currentPhase.tools.length - 1];
-          lastTool.result = event.content;
-          triggerRender(state, setMessages);
-        }
-        break;
-      }
-
-      // 总结
-      case "summary": {
-        state.summary = event;
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last && last.role === "assistant") {
-            updated[updated.length - 1] = {
-              ...last,
-              summary: event,
-              streaming: false,
-            };
+        // 工具执行结果 → 更新最后一个 tool_call
+        case "tool_result": {
+          for (let i = state.blocks.length - 1; i >= 0; i--) {
+            const b = state.blocks[i];
+            if (b.type === "tool_call") {
+              (b as Extract<MsgBlock, { type: "tool_call" }>).result =
+                event.content;
+              break;
+            }
           }
-          return updated;
-        });
-        setIsLoading(false);
-        break;
-      }
+          commitRender();
+          break;
+        }
 
-      // 错误
-      case "error": {
-        setIsLoading(false);
-        break;
+        // 文档目标
+        case "doc_target": {
+          state.currentThought = null;
+          state.blocks.push({
+            type: "text",
+            content: `目标文档：${event.fileName}`,
+          });
+          commitRender();
+          break;
+        }
+
+        // 总结 → 纯文字块
+        case "summary": {
+          state.currentThought = null;
+          state.activePhase = null;
+          const detail = event.detail ? `\n\n${event.detail}` : "";
+          const failed =
+            event.failed_tasks.length > 0
+              ? `\n\n失败任务：${event.failed_tasks.join("、")}`
+              : "";
+          state.blocks.push({
+            type: "summary",
+            content: `${event.summary_text}${detail}${failed}`,
+          });
+          commitRender();
+          setIsLoading(false);
+          break;
+        }
+
+        // 错误
+        case "error": {
+          state.currentThought = null;
+          state.activePhase = null;
+          state.blocks.push({
+            type: "text",
+            content: `错误：${event.message}`,
+          });
+          commitRender();
+          setIsLoading(false);
+          break;
+        }
       }
-    }
-  }, []);
+    },
+    [commitRender]
+  );
 
   const handleDone = useCallback(() => {
     setIsLoading(false);
+    commitRender();
     checkAgentStatus();
-  }, []);
+  }, [commitRender]);
 
-  const handleError = useCallback((_error: string) => {
-    setIsLoading(false);
-  }, []);
+  const handleError = useCallback(
+    () => {
+      setIsLoading(false);
+    },
+    []
+  );
 
   // ================================================================
   // 发送 / 取消 / 重置
@@ -295,8 +383,12 @@ export default function AgentPanel({ collapsed, onToggleCollapse, activeDocId }:
     setInputText("");
     setIsLoading(true);
 
-    // 重置当前 assistant 构建器
-    currentAssistantRef.current = { phases: [], currentPhase: null, summary: null };
+    // 重置构建状态
+    stateRef.current = {
+      blocks: [],
+      currentThought: null,
+      activePhase: null,
+    };
 
     // 添加用户消息
     setMessages((prev) => [...prev, { role: "user", content: text }]);
@@ -304,17 +396,18 @@ export default function AgentPanel({ collapsed, onToggleCollapse, activeDocId }:
     // 添加占位的 assistant 消息
     setMessages((prev) => [
       ...prev,
-      { role: "assistant" as const, phases: [], summary: null, streaming: true },
+      { role: "assistant" as const, blocks: [], streaming: true },
     ]);
 
     abortRef.current = sendAgentMessage(
       text,
       activeDocId ?? undefined,
+      agentMode,
       handleEvent,
       handleDone,
       handleError
     );
-  }, [inputText, isLoading, activeDocId, handleEvent, handleDone, handleError]);
+  }, [inputText, isLoading, activeDocId, agentMode, handleEvent, handleDone, handleError]);
 
   const handleCancel = useCallback(() => {
     abortRef.current?.abort();
@@ -343,7 +436,11 @@ export default function AgentPanel({ collapsed, onToggleCollapse, activeDocId }:
 
   if (collapsed) {
     return (
-      <div className={styles.collapsedPanel} onClick={onToggleCollapse} title="展开 Agent 面板">
+      <div
+        className={styles.collapsedPanel}
+        onClick={onToggleCollapse}
+        title="展开 Agent 面板"
+      >
         <span className={styles.expandBtn}>Agent</span>
       </div>
     );
@@ -355,240 +452,251 @@ export default function AgentPanel({ collapsed, onToggleCollapse, activeDocId }:
 
   return (
     <ConfigProvider theme={agentTheme}>
-    <div className={styles.panel}>
-      {/* Header */}
-      <Flex justify="space-between" align="center" className={styles.header}>
-        <Typography.Text strong style={{ color: "#fff", fontSize: 14 }}>
-          <RobotOutlined style={{ marginRight: 6 }} />
-          Agent
-          {agentStatus && (
-            <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
-              {agentStatus.docs} 文档
-            </Typography.Text>
-          )}
-        </Typography.Text>
-        <Flex gap={6} align="center">
-          <Tooltip title="重置对话">
+      <div className={styles.panel}>
+        {/* Header */}
+        <Flex justify="space-between" align="center" className={styles.header}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>
+            <RobotOutlined style={{ marginRight: 6 }} />
+            Agent
+            {agentStatus && (
+              <span
+                style={{
+                  fontSize: 11,
+                  color: "#888",
+                  fontWeight: 400,
+                  marginLeft: 8,
+                }}
+              >
+                {agentStatus.docs} 文档
+              </span>
+            )}
+          </span>
+          <Flex gap={6} align="center">
+            <Tooltip title={agentMode === "workflow" ? "切换为对话模式（Chat）" : "切换为工作流模式（Workflow）"}>
+              <Button
+                size="small"
+                type={agentMode === "workflow" ? "primary" : "default"}
+                ghost={agentMode !== "workflow"}
+                onClick={() => setAgentMode(agentMode === "workflow" ? "chat" : "workflow")}
+                disabled={isLoading}
+                style={{
+                  fontSize: 11,
+                  padding: "0 8px",
+                  height: 22,
+                }}
+              >
+                {agentMode === "workflow" ? "工作流" : "对话"}
+              </Button>
+            </Tooltip>
+            <Tooltip title="重置对话">
+              <Button
+                size="small"
+                icon={<ReloadOutlined />}
+                onClick={handleReset}
+                disabled={isLoading}
+              />
+            </Tooltip>
             <Button
               size="small"
-              icon={<ReloadOutlined />}
-              onClick={handleReset}
-              disabled={isLoading}
+              onClick={onToggleCollapse}
+              icon={<RightOutlined />}
             />
-          </Tooltip>
-          <Button size="small" onClick={onToggleCollapse} icon={<RightOutlined />} />
-        </Flex>
-      </Flex>
-
-      {/* Messages */}
-      <div className={styles.messages}>
-        {messages.length === 0 && (
-          <Flex vertical align="center" justify="center" style={{ height: "100%", color: "#666", textAlign: "center", gap: 8 }}>
-            <RobotOutlined style={{ fontSize: 32, opacity: 0.3 }} />
-            <Typography.Text type="secondary">向 AI Agent 描述你的文档操作需求</Typography.Text>
-            {!activeDocId && (
-              <Typography.Text style={{ fontSize: 11, color: "#555" }}>
-                提示：打开一个文档后 Agent 可以自动识别
-              </Typography.Text>
-            )}
-            {!agentReady && (
-              <Typography.Text style={{ fontSize: 11, color: "#cc4444" }}>
-                Agent 未初始化，请检查 API Key 配置
-              </Typography.Text>
-            )}
           </Flex>
-        )}
+        </Flex>
 
-        {messages.map((msg, i) => (
-          <div key={i}>
-            {msg.role === "user" ? (
-              <div className={styles.userMessageRow}>
-                <div className={styles.userBubble}>{msg.content}</div>
-                <UserOutlined className={styles.userIcon} />
+        {/* Messages */}
+        <div className={styles.messages}>
+          {messages.length === 0 && (
+            <div className={styles.emptyState}>
+              <RobotOutlined style={{ fontSize: 32, opacity: 0.3 }} />
+              <div style={{ color: "#666", fontSize: 13 }}>
+                向 AI Agent 描述你的文档操作需求
               </div>
-            ) : (
-              <div className={styles.assistantResponse}>
-                {/* Phase: 分析 / 计划 / 执行 / 验证 */}
-                {msg.phases.map((phase) => (
-                  <Collapse
-                    key={phase.name}
-                    ghost
-                    size="small"
-                    defaultActiveKey={["phase-" + phase.name]}
-                    className={styles.phaseCollapse}
-                  >
-                    <Collapse.Panel
-                      key={"phase-" + phase.name}
-                      header={
-                        <span className={styles.phaseHeader}>
-                          <span className={styles.phaseIcon}>{PHASE_ICONS[phase.name]}</span>
-                          <span className={styles.phaseLabel}>{phase.label}</span>
-                          {phase.status === "active" && <Spin size="small" style={{ marginLeft: 8 }} />}
-                        </span>
-                      }
-                    >
-                      {/* 思考过程（可折叠） */}
-                      {phase.thoughtLines.length > 0 && (
-                        <Collapse ghost size="small" className={styles.thoughtCollapse}>
-                          <Collapse.Panel
-                            key="thought"
-                            header={<span className={styles.thoughtHeader}>💭 思考过程</span>}
+              {!activeDocId && (
+                <div style={{ fontSize: 11, color: "#555" }}>
+                  提示：打开一个文档后 Agent 可以自动识别
+                </div>
+              )}
+              {!agentReady && (
+                <div style={{ fontSize: 11, color: "#cc4444" }}>
+                  Agent 未初始化，请检查 API Key 配置
+                </div>
+              )}
+            </div>
+          )}
+
+          {messages.map((msg, i) => (
+            <div key={i}>
+              {msg.role === "user" ? (
+                <div className={styles.userMessageRow}>
+                  <div className={styles.userBubble}>{msg.content}</div>
+                  <UserOutlined className={styles.userIcon} />
+                </div>
+              ) : (
+                <div className={styles.assistantContainer}>
+                  {/* 扁平块列表 */}
+                  {msg.blocks.map((block, bi) => {
+                    switch (block.type) {
+                      case "text":
+                        return (
+                          <div key={bi} className={styles.textBlock}>
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              components={mdComponents}
+                            >
+                              {block.content}
+                            </ReactMarkdown>
+                          </div>
+                        );
+
+                      case "thought":
+                        // 流式过程中始终展开，结束后可折叠
+                        return (
+                          <Collapse
+                            key={bi}
+                            ghost
+                            size="small"
+                            className={styles.thoughtBlock}
+                            defaultActiveKey={
+                              msg.streaming ? ["thought"] : undefined
+                            }
                           >
-                            <Typography.Paragraph
+                            <Collapse.Panel
+                              key="thought"
+                              header={
+                                <span className={styles.thoughtHeader}>
+                                  {msg.streaming ? "思考中..." : "思考过程"}
+                                </span>
+                              }
+                            >
+                              {block.lines.map((line, li) => (
+                                <div key={li} className={styles.thoughtLine}>
+                                  {line}
+                                </div>
+                              ))}
+                            </Collapse.Panel>
+                          </Collapse>
+                        );
+
+                      case "tool_call":
+                        return (
+                          <div key={bi} className={styles.toolCallBlock}>
+                            <Tag
+                              color="default"
                               style={{
-                                fontSize: 12,
-                                color: "#aaa",
-                                whiteSpace: "pre-wrap",
-                                wordBreak: "break-word",
-                                margin: 0,
-                                padding: "6px 8px",
-                                background: "#1a1a2e",
-                                borderRadius: 4,
-                                maxHeight: 200,
-                                overflow: "auto",
-                                lineHeight: 1.6,
+                                fontSize: 11,
+                                lineHeight: "1.4",
+                                padding: "0 6px",
                               }}
                             >
-                              {phase.thoughtLines.join("\n")}
-                            </Typography.Paragraph>
-                          </Collapse.Panel>
-                        </Collapse>
-                      )}
-
-                      {/* 用户可见内容 */}
-                      {phase.contentLines.length > 0 && (
-                        <div className={styles.phaseContent}>
-                          {phase.contentLines.map((line, ci) => (
-                            <Typography.Paragraph key={ci} style={{ marginBottom: 4, color: "#ddd", fontSize: 13 }}>
-                              {line}
-                            </Typography.Paragraph>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* 工具调用链 */}
-                      {phase.tools.length > 0 && (
-                        <div className={styles.toolChain}>
-                          {phase.tools.map((t, ti) => (
-                            <span key={ti} className={styles.toolItem}>
-                              <Tag color={toolColor(t.tool)} className={styles.toolTag}>
-                                {toolLabel(t.tool)}
-                              </Tag>
-                              <span className={styles.toolResult}>
-                                {t.result || "⏳"}
-                              </span>
-                              {ti < phase.tools.length - 1 && (
-                                <span className={styles.toolArrow}>→</span>
-                              )}
+                              {toolLabel(block.tool)}
+                            </Tag>
+                            <span className={styles.toolCallArgs}>
+                              {block.args}
                             </span>
-                          ))}
-                        </div>
-                      )}
-                    </Collapse.Panel>
-                  </Collapse>
-                ))}
-
-                {/* 流式加载中 */}
-                {msg.streaming && msg.phases.length === 0 && !msg.summary && (
-                  <Typography.Text type="secondary" style={{ display: "flex", alignItems: "center", gap: 6, padding: 8, fontSize: 12 }}>
-                    <Spin size="small" /> 思考中...
-                  </Typography.Text>
-                )}
-
-                {/* Summary 总结卡片 */}
-                {msg.summary && (
-                  <Card size="small" className={styles.summaryCard} bordered={false}>
-                    <Result
-                      status={
-                        msg.summary.result === "success"
-                          ? "success"
-                          : msg.summary.result === "intervention"
-                          ? "warning"
-                          : "error"
-                      }
-                      title={msg.summary.summary_text}
-                      subTitle={msg.summary.detail}
-                      extra={
-                        msg.summary.failed_tasks.length > 0 && (
-                          <div className={styles.failedTasks}>
-                            <Typography.Text type="secondary" style={{ fontSize: 12, marginBottom: 4, display: "block" }}>
-                              失败任务：
-                            </Typography.Text>
-                            {msg.summary.failed_tasks.map((t, fi) => (
-                              <Tag key={fi} color="red">{t}</Tag>
-                            ))}
+                            {block.result ? (
+                              <span className={styles.toolCallResult}>
+                                {block.result}
+                              </span>
+                            ) : (
+                              <span className={styles.toolCallRunning}>
+                                处理中...
+                              </span>
+                            )}
                           </div>
-                        )
-                      }
-                    />
-                  </Card>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
+                        );
 
-        {/* 空消息占位 + 自动滚动 */}
-        <div ref={messagesEndRef} />
-      </div>
+                      case "summary":
+                        return (
+                          <div key={bi} className={styles.summaryBlock}>
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              components={mdComponents}
+                            >
+                              {block.content}
+                            </ReactMarkdown>
+                          </div>
+                        );
 
-      {/* Input */}
-      <Flex vertical={false} gap={8} align="center" className={styles.inputArea}>
-        <Input
-          ref={inputRef}
-          placeholder={
-            agentReady
-              ? activeDocId
-                ? "描述文档操作需求..."
-                : "输入消息...（建议先打开文档）"
-              : "Agent 未就绪..."
-          }
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={!agentReady || isLoading}
-          variant="filled"
-          size="small"
-          style={{ flex: 1 }}
-        />
-        {isLoading ? (
-          <Button onClick={handleCancel} danger icon={<StopOutlined />} size="small">
-            停止
-          </Button>
-        ) : (
-          <Button
-            type="primary"
-            onClick={handleSend}
-            disabled={!agentReady || !inputText.trim()}
-            icon={<SendOutlined />}
+                      default:
+                        return null;
+                    }
+                  })}
+
+                  {/* 流式加载指示 — 尚未输出任何内容时 */}
+                  {msg.streaming && msg.blocks.length === 0 && (
+                    <span
+                      style={{
+                        color: "#888",
+                        fontSize: 12,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: 8,
+                      }}
+                    >
+                      <Spin size="small" /> 处理中...
+                    </span>
+                  )}
+
+                  {/* 闪烁光标（有内容正在流式输出时） */}
+                  {msg.streaming && msg.blocks.length > 0 && (
+                    <span className={styles.streamingCursor}>|</span>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Input */}
+        <Flex
+          vertical={false}
+          gap={8}
+          align="center"
+          className={styles.inputArea}
+        >
+          <Input
+            ref={inputRef}
+            placeholder={
+              agentReady
+                ? activeDocId
+                  ? "描述文档操作需求..."
+                  : "输入消息...（建议先打开文档）"
+                : "Agent 未就绪..."
+            }
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={!agentReady || isLoading}
+            variant="filled"
             size="small"
-          >
-            发送
-          </Button>
-        )}
-      </Flex>
-    </div>
+            style={{ flex: 1 }}
+          />
+          {isLoading ? (
+            <Button
+              onClick={handleCancel}
+              danger
+              icon={<StopOutlined />}
+              size="small"
+            >
+              停止
+            </Button>
+          ) : (
+            <Button
+              type="primary"
+              onClick={handleSend}
+              disabled={!agentReady || !inputText.trim()}
+              icon={<SendOutlined />}
+              size="small"
+            >
+              发送
+            </Button>
+          )}
+        </Flex>
+      </div>
     </ConfigProvider>
   );
-}
-
-// ================================================================
-// 辅助函数：触发 React 重渲染
-// ================================================================
-
-function triggerRender(
-  state: { phases: PhaseData[] },
-  setMessages: React.Dispatch<React.SetStateAction<any[]>>
-) {
-  setMessages((prev) => {
-    const updated = [...prev];
-    const last = updated[updated.length - 1];
-    if (last && last.role === "assistant") {
-      updated[updated.length - 1] = {
-        ...last,
-        phases: [...state.phases],
-      };
-    }
-    return updated;
-  });
 }

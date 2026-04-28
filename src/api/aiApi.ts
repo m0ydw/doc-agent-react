@@ -3,8 +3,9 @@
  *
  * 后端输出的事件格式（每行一个事件）：
  *   [phase:analyze]          → 阶段开始
- *   [thought]xxx             → 思考过程（可折叠）
+ *   [thought]xxx             → 思考过程（实时展开）
  *   [content]xxx             → 用户可见内容
+ *   [chat]xxx                → React Agent 模式纯文本流式输出
  *   [tool]name|args          → 工具调用
  *   [tool_result]xxx         → 工具执行结果
  *   [phase:analyze:end]      → 阶段结束
@@ -12,6 +13,8 @@
  *   [summary]{json}          → 最终总结
  *   [error]xxx               → 错误
  *   [retry]N                 → 重试
+ *
+ * AgentMode: "workflow"（4阶段工作流）| "chat"（React Agent 对话模式）
  */
 
 const AI_BASE_URL = "http://localhost:3000/api/ai";
@@ -19,6 +22,9 @@ const AI_BASE_URL = "http://localhost:3000/api/ai";
 // ================================================================
 // 结构化事件类型定义
 // ================================================================
+
+/** Agent 工作模式 */
+export type AgentMode = "workflow" | "chat";
 
 /** 阶段事件 */
 export interface PhaseEvent {
@@ -41,6 +47,12 @@ export interface ThoughtEvent {
 /** 用户可见内容 */
 export interface ContentEvent {
   type: "content";
+  content: string;
+}
+
+/** React Agent 模式的纯文本流式内容（逐 token） */
+export interface ChatContentEvent {
+  type: "chat_content";
   content: string;
 }
 
@@ -81,7 +93,7 @@ export interface ErrorEvent {
 /** 联合事件类型 */
 export type AgentEvent =
   | PhaseEvent | PhaseEndEvent
-  | ThoughtEvent | ContentEvent
+  | ThoughtEvent | ContentEvent | ChatContentEvent
   | ToolCallEvent | ToolResultEvent
   | DocTargetEvent
   | SummaryEvent
@@ -105,16 +117,18 @@ export interface StatusResponse {
 /**
  * 发送消息到 AI Agent，SSE 流式读取并按事件类型回调
  *
- * @param message     用户输入
+ * @param message      用户输入
  * @param contextDocId 当前文档 ID（可选）
- * @param onEvent     收到结构化事件的回调
- * @param onDone      流结束的回调
- * @param onError     错误回调
+ * @param mode         Agent 工作模式（"workflow" | "chat"），默认 "workflow"
+ * @param onEvent      收到结构化事件的回调
+ * @param onDone       流结束的回调
+ * @param onError      错误回调
  * @returns AbortController，用于取消
  */
 export function sendAgentMessage(
   message: string,
   contextDocId?: string,
+  mode?: AgentMode,
   onEvent?: (event: AgentEvent) => void,
   onDone?: () => void,
   onError?: (error: string) => void
@@ -127,6 +141,7 @@ export function sendAgentMessage(
     body: JSON.stringify({
       message,
       contextDocId: contextDocId || undefined,
+      mode: mode || "workflow",
     }),
     signal: controller.signal,
   })
@@ -222,6 +237,10 @@ function parseEventLine(line: string): AgentEvent | null {
     // 用户可见内容
     case "content":
       return { type: "content", content };
+
+    // React Agent 模式纯文本流式内容
+    case "chat":
+      return { type: "chat_content", content };
 
     // 工具调用 — [tool]name|args
     case "tool": {
