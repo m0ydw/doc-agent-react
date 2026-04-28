@@ -63,6 +63,13 @@ export interface ToolCallEvent {
   args: string;
 }
 
+/** 工具调用开始（中间 loading 状态） */
+export interface ToolStartEvent {
+  type: "tool_start";
+  tool: string;
+  args: string;
+}
+
 /** 工具执行结果 */
 export interface ToolResultEvent {
   type: "tool_result";
@@ -94,7 +101,7 @@ export interface ErrorEvent {
 export type AgentEvent =
   | PhaseEvent | PhaseEndEvent
   | ThoughtEvent | ContentEvent | ChatContentEvent
-  | ToolCallEvent | ToolResultEvent
+  | ToolCallEvent | ToolStartEvent | ToolResultEvent
   | DocTargetEvent
   | SummaryEvent
   | ErrorEvent;
@@ -241,6 +248,15 @@ function parseEventLine(line: string): AgentEvent | null {
     // React Agent 模式纯文本流式内容
     case "chat":
       return { type: "chat_content", content };
+
+    // 工具调用开始 — [tool_start]name|args
+    case "tool_start": {
+      const sep = content.indexOf("|");
+      if (sep > 0) {
+        return { type: "tool_start", tool: content.slice(0, sep), args: content.slice(sep + 1) };
+      }
+      return { type: "tool_start", tool: content, args: "" };
+    }
 
     // 工具调用 — [tool]name|args
     case "tool": {

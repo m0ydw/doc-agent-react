@@ -286,9 +286,27 @@ export default function AgentPanel({
           break;
         }
 
-        // 工具调用
+        // 工具调用开始 — 创建带 loading 状态的 tool_call 块
+        case "tool_start": {
+          state.currentThought = null;
+          state.blocks.push({
+            type: "tool_call",
+            tool: event.tool,
+            args: event.args,
+            result: "",
+          });
+          commitRender();
+          break;
+        }
+
+        // 工具调用 — 如果已有 tool_start 则忽略（去重），否则创建
         case "tool_call": {
           state.currentThought = null;
+          const last = state.blocks[state.blocks.length - 1];
+          // 如果上一个块已经是同一工具的 tool_call（由 tool_start 创建），跳过
+          if (last && last.type === "tool_call" && last.tool === event.tool && last.result === "") {
+            break;
+          }
           state.blocks.push({
             type: "tool_call",
             tool: event.tool,
@@ -550,30 +568,29 @@ export default function AgentPanel({
                         );
 
                       case "thought":
-                        // 流式过程中始终展开，结束后可折叠
+                        // 思考过程：默认展开，使用 Markdown 渲染
                         return (
                           <Collapse
                             key={bi}
                             ghost
                             size="small"
                             className={styles.thoughtBlock}
-                            defaultActiveKey={
-                              msg.streaming ? ["thought"] : undefined
-                            }
+                            defaultActiveKey={["thought"]}
                           >
                             <Collapse.Panel
                               key="thought"
                               header={
                                 <span className={styles.thoughtHeader}>
-                                  {msg.streaming ? "思考中..." : "思考过程"}
+                                  思考内容
                                 </span>
                               }
                             >
-                              {block.lines.map((line, li) => (
-                                <div key={li} className={styles.thoughtLine}>
-                                  {line}
-                                </div>
-                              ))}
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={mdComponents}
+                              >
+                                {block.lines.join("\n")}
+                              </ReactMarkdown>
                             </Collapse.Panel>
                           </Collapse>
                         );
@@ -600,6 +617,7 @@ export default function AgentPanel({
                               </span>
                             ) : (
                               <span className={styles.toolCallRunning}>
+                                <Spin size="small" style={{ marginRight: 4 }} />
                                 处理中...
                               </span>
                             )}
