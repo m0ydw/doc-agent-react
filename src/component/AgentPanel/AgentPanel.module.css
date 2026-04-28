@@ -26,6 +26,36 @@
 .headerActions {
   display: flex;
   gap: 4px;
+  align-items: center;
+}
+
+.resetBtn {
+  background: none;
+  border: 1px solid #3a3a5a;
+  color: #888;
+  cursor: pointer;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1;
+  transition: all 0.15s ease;
+}
+
+.resetBtn:hover {
+  background: #3a3a5a;
+  color: #fff;
+}
+
+.resetBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.statusBadge {
+  margin-left: 8px;
+  font-size: 11px;
+  color: #666;
+  font-weight: 400;
 }
 
 .collapseBtn {
@@ -70,6 +100,18 @@
   opacity: 0.3;
 }
 
+.docHint {
+  font-size: 11px;
+  color: #555;
+  margin-top: 4px;
+}
+
+.errorHint {
+  font-size: 11px;
+  color: #cc4444;
+  margin-top: 4px;
+}
+
 .message {
   display: flex;
   flex-direction: column;
@@ -97,6 +139,21 @@
   background: #2a2a4a;
   color: #e0e0e0;
   border-bottom-left-radius: 2px;
+  white-space: pre-wrap;
+}
+
+.cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: #0066cc;
+  margin-left: 1px;
+  animation: blink 0.8s step-end infinite;
+  vertical-align: text-bottom;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
 }
 
 .messageBubbleUser {
@@ -135,6 +192,11 @@
 
 .input:focus {
   border-color: #0066cc;
+}
+
+.input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .sendBtn {

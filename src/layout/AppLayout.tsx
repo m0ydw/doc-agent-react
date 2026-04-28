@@ -410,7 +410,7 @@ export default function AppLayout() {
             className={`${styles.agentWrapper} ${agentCollapsed ? styles.agentWrapperCollapsed : styles.agentWrapperExpanded}`}
             style={{ width: agentCollapsed ? "32px" : `${agentWidth}px` }}
           >
-            <AgentPanel collapsed={agentCollapsed} onToggleCollapse={handleToggleAgent} />
+            <AgentPanel collapsed={agentCollapsed} onToggleCollapse={handleToggleAgent} activeDocId={activeTabId} />
           </div>
         </div>
 
