@@ -56,25 +56,6 @@
   max-height: 300px;
 }
 
-.findReplaceToggle {
-  width: 100%;
-  padding: 6px 12px;
-  background: #f5f5f5;
-  border: none;
-  border-top: 1px solid #ddd;
-  cursor: pointer;
-  font-size: 12px;
-  color: #666;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.findReplaceToggle:hover {
-  background: #e8e8e8;
-}
-
 /* Drop overlay */
 .dropOverlay {
   position: absolute;
@@ -102,48 +83,7 @@
   font-weight: 500;
 }
 
-/* Modal backdrop */
-.modalBackdrop {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 999;
-}
-
-.modalContent {
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
-  max-width: 600px;
-  width: 90%;
-  max-height: 80vh;
-  overflow-y: auto;
-}
-
-/* Empty state */
-.emptyState {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: #999;
-  font-size: 14px;
-  gap: 16px;
-}
-
-.emptyState p {
-  margin: 0;
-}
-
 /* ===== Status bar ===== */
-
 .statusBar {
   padding: 4px 12px;
   font-size: 12px;
@@ -162,120 +102,7 @@
   color: #2e7d32;
 }
 
-/* ===== Find/Replace panel ===== */
-
-.findReplaceInner {
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-size: 13px;
-}
-
-.findReplaceRow {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.findReplaceLabel {
-  width: 60px;
-  flex-shrink: 0;
-}
-
-.findReplaceInput {
-  flex: 1;
-  padding: 4px 8px;
-  border-radius: 4px;
-  border: 1px solid #ccc;
-  font-size: 13px;
-}
-
-.findReplaceActions {
-  display: flex;
-  gap: 6px;
-}
-
-.btnFind {
-  padding: 4px 12px;
-  border-radius: 4px;
-  border: none;
-  background: #2196f3;
-  color: #fff;
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.btnFind:hover {
-  background: #1976d2;
-}
-
-.btnReplace {
-  padding: 4px 12px;
-  border-radius: 4px;
-  border: none;
-  background: #ff9800;
-  color: #fff;
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.btnReplace:hover {
-  background: #f57c00;
-}
-
-.btnReplaceAll {
-  padding: 4px 12px;
-  border-radius: 4px;
-  border: none;
-  background: #f44336;
-  color: #fff;
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.btnReplaceAll:hover {
-  background: #d32f2f;
-}
-
-/* Results */
-
-.resultStatus {
-  margin: 0;
-  padding: 4px 8px;
-  background: #e8f5e9;
-  border-radius: 4px;
-  font-size: 12px;
-}
-
-.resultFind {
-  padding: 4px 8px;
-  background: #e3f2fd;
-  border-radius: 4px;
-  font-size: 12px;
-}
-
-.resultReplace {
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-}
-
-.resultReplaceSuccess {
-  background: #fff3e0;
-}
-
-.resultReplaceFailure {
-  background: #ffebee;
-}
-
-.resultList {
-  margin: 4px 0 0 0;
-  padding-left: 16px;
-}
-
 /* Agent panel wrapper */
-
 .agentWrapper {
   flex-shrink: 0;
   overflow: hidden;
@@ -293,9 +120,4 @@
 /* Hidden file input */
 .hiddenInput {
   display: none;
-}
-
-/* Modal inner padding */
-.modalInner {
-  padding: 8px 0;
 }

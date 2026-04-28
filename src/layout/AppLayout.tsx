@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ConfigProvider, theme, Empty, Button, Input, Typography, Flex } from "antd";
+
 import { DocumentViewer } from "@/component";
 import TabBar from "@/component/TabBar/TabBar";
 import AgentPanel from "@/component/AgentPanel/AgentPanel";
@@ -14,6 +16,17 @@ import {
 } from "@/api/docApi";
 import type { DocumentInfo } from "@/api/docApi";
 import styles from "./AppLayout.module.css";
+
+/** 主区域亮色主题 */
+const lightTheme: Parameters<typeof ConfigProvider>[0]['theme'] = {
+  algorithm: theme.defaultAlgorithm,
+  token: {
+    colorPrimary: "#0066cc",
+    colorBgContainer: "#ffffff",
+    borderRadius: 6,
+    fontSize: 13,
+  },
+};
 
 interface TabData {
   doc: DocumentInfo;
@@ -301,6 +314,7 @@ export default function AppLayout() {
 
   // ===== 渲染 =====
   return (
+    <ConfigProvider theme={lightTheme}>
     <div className={styles.page}>
       <TabBar
         tabs={tabs.map((t) => ({ id: t.doc.id, name: t.doc.originalName }))}
@@ -324,10 +338,16 @@ export default function AppLayout() {
           <div className={styles.documentPanel}>
             <div className={styles.tabContentContainer}>
               {tabs.length === 0 ? (
-                <div className={styles.emptyState}>
-                  <p>📄</p>
-                  <p>拖拽 .docx 文件到此处，或点击 + 上传</p>
-                </div>
+                <Flex align="center" justify="center" style={{ height: "100%" }}>
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description={
+                      <Typography.Text type="secondary">
+                        拖拽 .docx 文件到此处，或点击 + 上传
+                      </Typography.Text>
+                    }
+                  />
+                </Flex>
               ) : (
                 tabs.map((tab) => (
                   <div
@@ -347,43 +367,53 @@ export default function AppLayout() {
             </div>
 
             {/* Find/Replace toggle */}
-            <button className={styles.findReplaceToggle} onClick={() => setShowFindReplace(!showFindReplace)}>
+            <Button
+              type="text"
+              size="small"
+              block
+              onClick={() => setShowFindReplace(!showFindReplace)}
+              style={{ background: "#f5f5f5", borderTop: "1px solid #ddd", borderRadius: 0, height: 32 }}
+            >
               {showFindReplace ? "▼" : "▲"} 查找替换
-            </button>
+            </Button>
 
             {/* Find/Replace panel (TODO: keep until feature refactor) */}
             {showFindReplace && (
               <div className={styles.findReplacePanel}>
-                <div className={styles.findReplaceInner}>
-                  <div className={styles.findReplaceRow}>
-                    <label className={styles.findReplaceLabel}>查找:</label>
-                    <input
-                      className={styles.findReplaceInput}
-                      type="text" value={findPattern}
+                <Flex vertical gap={8} style={{ padding: 12, fontSize: 13 }}>
+                  <Flex gap={8} align="center">
+                    <Typography.Text style={{ width: 60, flexShrink: 0 }}>查找:</Typography.Text>
+                    <Input
+                      size="small"
+                      value={findPattern}
                       onChange={(e) => setFindPattern(e.target.value)}
                       placeholder="输入要查找的内容"
                     />
-                  </div>
-                  <div className={styles.findReplaceRow}>
-                    <label className={styles.findReplaceLabel}>替换为:</label>
-                    <input
-                      className={styles.findReplaceInput}
-                      type="text" value={replaceWith}
+                  </Flex>
+                  <Flex gap={8} align="center">
+                    <Typography.Text style={{ width: 60, flexShrink: 0 }}>替换为:</Typography.Text>
+                    <Input
+                      size="small"
+                      value={replaceWith}
                       onChange={(e) => setReplaceWith(e.target.value)}
                       placeholder="输入替换内容"
                     />
-                  </div>
-                  <div className={styles.findReplaceActions}>
-                    <button className={styles.btnFind} onClick={handleFind}>查找</button>
-                    <button className={styles.btnReplace} onClick={handleReplaceFirst}>替换第一个</button>
-                    <button className={styles.btnReplaceAll} onClick={handleReplaceAll}>替换全部</button>
-                  </div>
-                  {findStatus && <p className={styles.resultStatus}>{findStatus}</p>}
+                  </Flex>
+                  <Flex gap={6}>
+                    <Button size="small" type="primary" onClick={handleFind}>查找</Button>
+                    <Button size="small" style={{ borderColor: "#ff9800", color: "#ff9800" }} onClick={handleReplaceFirst}>替换第一个</Button>
+                    <Button size="small" danger onClick={handleReplaceAll}>替换全部</Button>
+                  </Flex>
+                  {findStatus && (
+                    <Typography.Text style={{ padding: "4px 8px", background: "#e8f5e9", borderRadius: 4, fontSize: 12 }}>
+                      {findStatus}
+                    </Typography.Text>
+                  )}
                   {findResult && (
-                    <div className={styles.resultFind}>
-                      <strong>查找结果:</strong> 找到 {findResult.count} 处匹配
+                    <div style={{ padding: "4px 8px", background: "#e3f2fd", borderRadius: 4, fontSize: 12 }}>
+                      <Typography.Text strong>查找结果:</Typography.Text> 找到 {findResult.count} 处匹配
                       {findResult.positions.length > 0 && (
-                        <ul className={styles.resultList}>
+                        <ul style={{ margin: "4px 0 0 0", paddingLeft: 16 }}>
                           {findResult.positions.slice(0, 5).map((pos, i) => (
                             <li key={i}>[{pos.index}] {pos.text?.substring(0, 50) ?? "(无文本内容)"}...</li>
                           ))}
@@ -392,12 +422,19 @@ export default function AppLayout() {
                     </div>
                   )}
                   {replaceResult && (
-                    <div className={`${styles.resultReplace} ${replaceResult.success ? styles.resultReplaceSuccess : styles.resultReplaceFailure}`}>
-                      <strong>替换结果:</strong>{" "}
+                    <Typography.Text
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: 4,
+                        fontSize: 12,
+                        background: replaceResult.success ? "#fff3e0" : "#ffebee",
+                      }}
+                    >
+                      <Typography.Text strong>替换结果:</Typography.Text>{" "}
                       {replaceResult.success ? `已替换 ${replaceResult.replaced ?? 0} 处` : `失败：${replaceResult.message ?? "未知错误"}`}
-                    </div>
+                    </Typography.Text>
                   )}
-                </div>
+                </Flex>
               </div>
             )}
           </div>
@@ -426,5 +463,6 @@ export default function AppLayout() {
       <input ref={fileInputRef} type="file" accept=".doc,.docx" onChange={handleFileChange} className={styles.hiddenInput} />
 
     </div>
+    </ConfigProvider>
   );
 }
