@@ -80,6 +80,7 @@ export default function SettingsModal({
         apiKey: currentConfig.apiKey || selectedPreset.apiKey || "",
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, selectedPresetId]);
 
   const handleSave = useCallback(async () => {

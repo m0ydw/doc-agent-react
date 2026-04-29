@@ -103,7 +103,8 @@ export type AgentEvent =
   | ThoughtEvent | ContentEvent | ChatContentEvent
   | ToolCallEvent | ToolStartEvent | ToolResultEvent
   | DocTargetEvent
-  | SummaryEvent
+  | SummaryEvent | PhaseContentEvent
+  | TodoListEvent | TodoDoneEvent
   | ErrorEvent;
 
 // ================================================================
@@ -280,21 +281,40 @@ function parseEventLine(line: string): AgentEvent | null {
     case "thought":
       return { type: "thought", content };
 
-    // 用户可见内容 — 将 [br] 转为 <br>（ReactMarkdown 支持 HTML）
+    // 用户可见内容 — 将 [br] 转为 Markdown 断句
     case "content": {
       const formatted = content
-        .replace(/\[br\]\[br\]/g, "\n\n")   // 段落分隔
-        .replace(/\[br\]/g, "<br>\n");       // 行内换行（HTML <br>，ReactMarkdown 原生支持）
+        .replace(/\[br\]\[br\]/g, "\n\n")
+        .replace(/\[br\]/g, "  \n");
       return { type: "content", content: formatted };
     }
 
-    // React Agent 模式纯文本流式内容
+    // React Agent 模式流式内容
     case "chat": {
       const formatted = content
         .replace(/\[br\]\[br\]/g, "\n\n")
-        .replace(/\[br\]/g, "<br>\n");
+        .replace(/\[br\]/g, "  \n");
       return { type: "chat_content", content: formatted };
     }
+
+    // 阶段内容 — [phase_content]phase|content
+    case "phase_content": {
+      const sep = content.indexOf("|");
+      if (sep > 0) return { type: "phase_content", phase: content.slice(0, sep), content: content.slice(sep + 1) };
+      return { type: "phase_content", phase: "", content };
+    }
+
+    // Todo 列表 — [todo_list]{json}
+    case "todo_list": {
+      try {
+        const data = JSON.parse(content);
+        return { type: "todo_list", tasks: data.tasks || [] };
+      } catch { return null; }
+    }
+
+    // Todo 完成 — [todo_done]id
+    case "todo_done":
+      return { type: "todo_done", id: content };
 
     // 工具调用开始 — [tool_start]name|args
     case "tool_start": {
