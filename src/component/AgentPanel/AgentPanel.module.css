@@ -93,9 +93,9 @@
 }
 
 .thoughtBlock :global(.ant-collapse-content-box) {
-  padding: 4px 8px !important;
+  padding: 2px 6px !important;
   font-size: 12px;
-  color: #999;
+  color: #aaa;
   line-height: 1.6;
 }
 
@@ -104,12 +104,12 @@
 }
 
 .thoughtBlock :global(.ant-collapse-content-box) strong {
-  color: #ccc;
+  color: #bbb;
 }
 
 .thoughtHeader {
-  font-size: 12px;
-  color: #888;
+  font-size: 11px;
+  color: #999;
   font-weight: 500;
   letter-spacing: 0.5px;
 }

@@ -206,9 +206,15 @@ export default function AgentPanel({
     checkAgentStatus();
   }, []);
 
-  // 自动滚动
+  // 条件自动滚动（用户已在底部时才滚动，不打断查看历史）
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (isNearBottom) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
 
   useEffect(() => {
@@ -523,7 +529,7 @@ export default function AgentPanel({
         </Flex>
 
         {/* Messages */}
-        <div className={styles.messages}>
+        <div className={styles.messages} ref={messagesContainerRef}>
           {messages.length === 0 && (
             <div className={styles.emptyState}>
               <RobotOutlined style={{ fontSize: 32, opacity: 0.3 }} />
@@ -589,7 +595,8 @@ export default function AgentPanel({
                                 remarkPlugins={[remarkGfm]}
                                 components={mdComponents}
                               >
-                                {block.lines.join("\n")}
+                                {/* 用空格连接多行，避免多余空白；后端已按自然断点分句 */}
+                                {block.lines.join(" ")}
                               </ReactMarkdown>
                             </Collapse.Panel>
                           </Collapse>

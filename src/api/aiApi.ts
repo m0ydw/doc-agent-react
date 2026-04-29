@@ -127,6 +127,7 @@ export interface StatusResponse {
  * @param message      用户输入
  * @param contextDocId 当前文档 ID（可选）
  * @param mode         Agent 工作模式（"workflow" | "chat"），默认 "workflow"
+ * @param modelConfig  模型配置（厂商/模型/Key），可选
  * @param onEvent      收到结构化事件的回调
  * @param onDone       流结束的回调
  * @param onError      错误回调
@@ -190,7 +191,11 @@ export function sendAgentMessage(
       onDone?.();
     })
     .catch((err) => {
-      if (err.name === "AbortError") return;
+      if (err.name === "AbortError") {
+        // 连接断开（用户取消或网络中断），确保前端状态重置
+        onDone?.();
+        return;
+      }
       onError?.(err.message || "请求失败");
     });
 
