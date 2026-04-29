@@ -280,19 +280,19 @@ function parseEventLine(line: string): AgentEvent | null {
     case "thought":
       return { type: "thought", content };
 
-    // 用户可见内容 — 将 [br] 转为 Markdown 断句
+    // 用户可见内容 — 将 [br] 转为 <br>（ReactMarkdown 支持 HTML）
     case "content": {
       const formatted = content
         .replace(/\[br\]\[br\]/g, "\n\n")   // 段落分隔
-        .replace(/\[br\]/g, "  \n");        // 行内换行（两空格+换行）
+        .replace(/\[br\]/g, "<br>\n");       // 行内换行（HTML <br>，ReactMarkdown 原生支持）
       return { type: "content", content: formatted };
     }
 
-    // React Agent 模式纯文本流式内容 — 将 [br] 转为 Markdown 断句
+    // React Agent 模式纯文本流式内容
     case "chat": {
       const formatted = content
         .replace(/\[br\]\[br\]/g, "\n\n")
-        .replace(/\[br\]/g, "  \n");
+        .replace(/\[br\]/g, "<br>\n");
       return { type: "chat_content", content: formatted };
     }
 
