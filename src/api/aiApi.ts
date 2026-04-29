@@ -121,13 +121,40 @@ export interface StatusResponse {
   data: AgentStatus;
 }
 
+export interface ModelConfig {
+  provider: "zhipu" | "deepseek" | "openai" | string;
+  apiKey?: string;
+  model?: string;
+  modelKwargs?: Record<string, any>;
+}
+
+/**
+ * 模型预设（标签化存储）
+ */
+export interface ModelPreset {
+  id: string;
+  label: string;
+  provider: string;
+  model?: string;
+  modelKwargs?: Record<string, any>;
+  apiKey?: string;
+}
+
+/** 内置预设 */
+export const BUILTIN_PRESETS: ModelPreset[] = [
+  { id: "zhipu-glm4",  label: "智谱 GLM-4-Flash", provider: "zhipu",   model: "glm-4-flash" },
+  { id: "deepseek-chat", label: "DeepSeek Chat",   provider: "deepseek", model: "deepseek-chat" },
+  { id: "deepseek-v4", label: "DeepSeek V4-Flash", provider: "deepseek", model: "deepseek-v4-flash", modelKwargs: { thinking: { type: "disabled" } } },
+  { id: "openai-gpt4o", label: "OpenAI GPT-4o-mini", provider: "openai", model: "gpt-4o-mini" },
+];
+
 /**
  * 发送消息到 AI Agent，SSE 流式读取并按事件类型回调
  *
  * @param message      用户输入
  * @param contextDocId 当前文档 ID（可选）
  * @param mode         Agent 工作模式（"workflow" | "chat"），默认 "workflow"
- * @param modelConfig  模型配置（厂商/模型/Key），可选
+ * @param modelConfig  模型配置（厂商/模型），可选
  * @param onEvent      收到结构化事件的回调
  * @param onDone       流结束的回调
  * @param onError      错误回调
@@ -137,6 +164,7 @@ export function sendAgentMessage(
   message: string,
   contextDocId?: string,
   mode?: AgentMode,
+  modelConfig?: ModelConfig,
   onEvent?: (event: AgentEvent) => void,
   onDone?: () => void,
   onError?: (error: string) => void
@@ -150,6 +178,12 @@ export function sendAgentMessage(
       message,
       contextDocId: contextDocId || undefined,
       mode: mode || "workflow",
+      modelConfig: modelConfig ? {
+        provider: modelConfig.provider,
+        apiKey: modelConfig.apiKey,
+        model: modelConfig.model,
+        modelKwargs: modelConfig.modelKwargs,
+      } : undefined,
     }),
     signal: controller.signal,
   })
@@ -246,13 +280,21 @@ function parseEventLine(line: string): AgentEvent | null {
     case "thought":
       return { type: "thought", content };
 
-    // 用户可见内容
-    case "content":
-      return { type: "content", content };
+    // 用户可见内容 — 将 [br] 转为 Markdown 断句
+    case "content": {
+      const formatted = content
+        .replace(/\[br\]\[br\]/g, "\n\n")   // 段落分隔
+        .replace(/\[br\]/g, "  \n");        // 行内换行（两空格+换行）
+      return { type: "content", content: formatted };
+    }
 
-    // React Agent 模式纯文本流式内容
-    case "chat":
-      return { type: "chat_content", content };
+    // React Agent 模式纯文本流式内容 — 将 [br] 转为 Markdown 断句
+    case "chat": {
+      const formatted = content
+        .replace(/\[br\]\[br\]/g, "\n\n")
+        .replace(/\[br\]/g, "  \n");
+      return { type: "chat_content", content: formatted };
+    }
 
     // 工具调用开始 — [tool_start]name|args
     case "tool_start": {
@@ -320,6 +362,23 @@ export async function getAgentStatus(): Promise<AgentStatus | null> {
 export async function resetAgent(): Promise<boolean> {
   try {
     const res = await fetch(`${AI_BASE_URL}/agent/reset`, { method: "POST" });
+    const data = await res.json();
+    return data.success === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 设置 Agent LLM 配置（立即重新初始化全局 LLM）
+ */
+export async function setAgentConfig(config: ModelConfig): Promise<boolean> {
+  try {
+    const res = await fetch(`${AI_BASE_URL}/agent/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(config),
+    });
     const data = await res.json();
     return data.success === true;
   } catch {

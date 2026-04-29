@@ -19,9 +19,11 @@ import {
   RobotOutlined, UserOutlined,
   RightOutlined, ReloadOutlined,
   SendOutlined, StopOutlined,
+  SettingOutlined,
 } from "@ant-design/icons";
 import { sendAgentMessage, resetAgent, getAgentStatus } from "@/api/aiApi";
-import type { AgentEvent, AgentMode } from "@/api/aiApi";
+import type { AgentEvent, AgentMode, ModelConfig } from "@/api/aiApi";
+import SettingsModal from "./SettingsModal";
 import styles from "./AgentPanel.module.css";
 
 // ================================================================
@@ -161,6 +163,8 @@ export default function AgentPanel({
   const [inputText, setInputText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [agentMode, setAgentMode] = useState<AgentMode>("workflow");
+  const [modelConfig, setModelConfig] = useState<ModelConfig>({ provider: "zhipu", model: "glm-4-flash" });
+  const [showSettings, setShowSettings] = useState(false);
   const [agentReady, setAgentReady] = useState(false);
   const [agentStatus, setAgentStatus] = useState<{
     memory: number;
@@ -271,10 +275,15 @@ export default function AgentPanel({
           break;
         }
 
-        // 用户可见内容 → 关闭 thought，追加 text 块
+        // 用户可见内容 → 追加到最后一个 text 块（累积拼接完整 Markdown）
         case "content": {
           state.currentThought = null;
-          state.blocks.push({ type: "text", content: event.content });
+          const lastBlock = state.blocks[state.blocks.length - 1];
+          if (lastBlock && lastBlock.type === "text") {
+            (lastBlock as Extract<MsgBlock, { type: "text" }>).content += event.content;
+          } else {
+            state.blocks.push({ type: "text", content: event.content });
+          }
           commitRender();
           break;
         }
@@ -427,11 +436,12 @@ export default function AgentPanel({
       text,
       activeDocId ?? undefined,
       agentMode,
+      modelConfig,
       handleEvent,
       handleDone,
       handleError
     );
-  }, [inputText, isLoading, activeDocId, agentMode, handleEvent, handleDone, handleError]);
+  }, [inputText, isLoading, activeDocId, agentMode, modelConfig, handleEvent, handleDone, handleError]);
 
   const handleCancel = useCallback(() => {
     abortRef.current?.abort();
@@ -496,7 +506,18 @@ export default function AgentPanel({
             )}
           </span>
           <Flex gap={6} align="center">
-            <Tooltip title={agentMode === "workflow" ? "切换为对话模式（Chat）" : "切换为工作流模式（Workflow）"}>
+            <Tooltip title="LLM 模型设置">
+              <Button
+                size="small"
+                icon={<SettingOutlined />}
+                onClick={() => setShowSettings(true)}
+                disabled={isLoading}
+              />
+            </Tooltip>
+            <span style={{ fontSize: 10, color: "#888" }}>
+              {modelConfig.model || modelConfig.provider}
+            </span>
+            <Tooltip title={agentMode === "workflow" ? "切换为对话模式（Chat）" : "切换为工作流模式（Workflow）"}> 
               <Button
                 size="small"
                 type={agentMode === "workflow" ? "primary" : "default"}
@@ -722,6 +743,18 @@ export default function AgentPanel({
           )}
         </Flex>
       </div>
+
+      {/* LLM 设置弹窗 */}
+      <SettingsModal
+        open={showSettings}
+        currentConfig={modelConfig}
+        onSave={(config) => {
+          setModelConfig(config);
+          setShowSettings(false);
+          checkAgentStatus();
+        }}
+        onCancel={() => setShowSettings(false)}
+      />
     </ConfigProvider>
   );
 }
