@@ -27,11 +27,6 @@ interface AssistantCardProps {
   streaming: boolean;
 }
 
-const TOOL_LABELS: Record<string, string> = {
-  sdk_get_text: "读取文档", sdk_find_text: "搜索文本",
-  sdk_replace_text: "替换文本", sdk_replace_all: "批量替换", sdk_save: "保存更改",
-};
-
 // ================================================================
 // 子组件：可折叠思考
 // ================================================================
@@ -71,7 +66,7 @@ function PhaseContent({ content }: { content: string }) {
 
 function ToolCallInline({ tool, args, result }: ToolBlock) {
   const done = !!result;
-  const label = TOOL_LABELS[tool] || tool;
+  const label = tool; // SSE 事件中 tool 已是 displayName（后端已格式化）
   const isError = done && (result.startsWith("✗") || result.includes("失败") || result.includes("错误"));
 
   return (

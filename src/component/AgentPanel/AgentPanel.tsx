@@ -14,6 +14,9 @@ import {
   RightOutlined,
   ReloadOutlined,
   SettingOutlined,
+  CheckCircleOutlined,
+  LoadingOutlined,
+  MinusOutlined,
 } from "@ant-design/icons";
 import { Bubble, Sender, ThoughtChain } from "@ant-design/x";
 import type { ThoughtChainItemType } from "@ant-design/x";
@@ -32,7 +35,8 @@ type MsgBlock =
   | { type: "text"; content: string }
   | { type: "thought"; lines: string[] }
   | { type: "tool_call"; tool: string; args: string; result: string }
-  | { type: "summary"; content: string };
+  | { type: "summary"; content: string }
+  | { type: "todo"; tasks: Array<{ id: string; goal: string; status: string }> };
 
 interface AssistantMsg {
   role: "assistant";
@@ -268,6 +272,32 @@ export default function AgentPanel({
           setIsLoading(false);
           break;
         }
+        case "todo_list": {
+          // 标准 #9：事件驱动 Todo 状态，替代中文关键词推断
+          state.currentThought = null;
+          const tasks = event.tasks.map((t) => ({
+            id: t.id,
+            goal: t.goal,
+            status: "pending" as const,
+          }));
+          state.blocks.push({ type: "todo", tasks });
+          commitRender();
+          break;
+        }
+        case "todo_done": {
+          // 标准 #9：更新对应任务的 status 为 done
+          for (let i = state.blocks.length - 1; i >= 0; i--) {
+            const b = state.blocks[i];
+            if (b.type === "todo") {
+              const todoBlock = b as Extract<MsgBlock, { type: "todo" }>;
+              const task = todoBlock.tasks.find((t) => t.id === event.id);
+              if (task) task.status = "done";
+              break;
+            }
+          }
+          commitRender();
+          break;
+        }
         case "error": {
           state.currentThought = null;
           state.activePhase = null;
@@ -497,6 +527,37 @@ export default function AgentPanel({
                           args={tc.args}
                           result={tc.result}
                         />
+                      );
+                    })}
+
+                  {/* Todo 列表（事件驱动状态，标准 #9） */}
+                  {msg.blocks
+                    .filter((b) => b.type === "todo")
+                    .map((b, bi) => {
+                      const todo = b as Extract<MsgBlock, { type: "todo" }>;
+                      return (
+                        <div key={bi} className={styles.todoList}>
+                          {todo.tasks.map((task) => (
+                            <div
+                              key={task.id}
+                              className={`${styles.todoItem} ${
+                                task.status === "done" ? styles.todoItemDone :
+                                task.status === "pending" ? styles.todoItemPending : ""
+                              }`}
+                            >
+                              <span className={styles.todoCheck}>
+                                {task.status === "done"
+                                  ? <CheckCircleOutlined style={{ color: "#52c41a" }} />
+                                  : task.status === "running"
+                                  ? <LoadingOutlined spin style={{ color: "#1890ff" }} />
+                                  : <MinusOutlined style={{ color: "#555" }} />}
+                              </span>
+                              <span className={`${styles.todoGoal} ${task.status === "done" ? styles.todoGoalDone : ""}`}>
+                                {task.goal}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
                       );
                     })}
 

@@ -13,18 +13,6 @@ import {
 import styles from "./AgentPanel.module.css";
 
 // ================================================================
-// 工具标签映射
-// ================================================================
-
-const TOOL_LABELS: Record<string, string> = {
-  sdk_get_text: "读取文档",
-  sdk_find_text: "搜索文本",
-  sdk_replace_text: "替换文本",
-  sdk_replace_all: "批量替换",
-  sdk_save: "保存更改",
-};
-
-// ================================================================
 // Props
 // ================================================================
 
@@ -40,7 +28,7 @@ export interface ToolCallBlockProps {
 
 export default function ToolCallBlock({ tool, args, result }: ToolCallBlockProps) {
   const done = !!result;
-  const label = TOOL_LABELS[tool] || tool;
+  const label = tool; // tool 字段已是 displayName（后端已通过 SDK_TOOL_METADATA 格式化）
   const isError =
     done &&
     (result.startsWith("✗") ||

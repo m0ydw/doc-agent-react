@@ -302,28 +302,19 @@ function parseEventLine(line: string): AgentEvent | null {
       return null;
     }
 
-    // 思考过程 — 也处理 [br] 标记
+    // 思考过程 — JSON 编码（新格式）或 [br] 标记（旧格式兼容）
     case "thought": {
-      const formatted = content
-        .replace(/\[br\]\[br\]/g, "\n\n")
-        .replace(/\[br\]/g, "  \n");
-      return { type: "thought", content: formatted };
+      return { type: "thought", content: decodeEventContent(content) };
     }
 
-    // 用户可见内容 — 将 [br] 转为 Markdown 断句
+    // 用户可见内容 — JSON 编码（新格式）或 [br] 标记（旧格式兼容）
     case "content": {
-      const formatted = content
-        .replace(/\[br\]\[br\]/g, "\n\n")
-        .replace(/\[br\]/g, "  \n");
-      return { type: "content", content: formatted };
+      return { type: "content", content: decodeEventContent(content) };
     }
 
-    // React Agent 模式流式内容
+    // React Agent 模式流式内容 — 同上
     case "chat": {
-      const formatted = content
-        .replace(/\[br\]\[br\]/g, "\n\n")
-        .replace(/\[br\]/g, "  \n");
-      return { type: "chat_content", content: formatted };
+      return { type: "chat_content", content: decodeEventContent(content) };
     }
 
     // 阶段内容 — [phase_content]phase|content
@@ -394,6 +385,28 @@ function parseEventLine(line: string): AgentEvent | null {
     default:
       return null;
   }
+}
+
+/**
+ * 解码事件内容：先尝试 JSON 解码（新格式），再回退 [br] 替换（旧格式兼容）
+ *
+ * 新格式（v2）：后端用 JSON.stringify 编码，\n → \\n，前端 JSON.parse 还原
+ * 旧格式（v1）：后端用 [br] 魔术字符串替换真实换行符
+ */
+function decodeEventContent(content: string): string {
+  // 尝试 JSON 解码（新格式以 " 开头）
+  if (content.startsWith('"')) {
+    try {
+      return JSON.parse(content) as string;
+    } catch {
+      // JSON 解码失败，继续走旧格式回退
+    }
+  }
+
+  // 旧格式回退：还原 [br] 魔术字符串
+  return content
+    .replace(/\[br\]\[br\]/g, "\n\n")
+    .replace(/\[br\]/g, "  \n");
 }
 
 /**
