@@ -18,7 +18,7 @@ import styles from "./AgentPanel.module.css";
 
 interface ThoughtBlock { type: "thought"; lines: string[] }
 interface TextBlock { type: "text" | "summary"; content: string }
-interface ToolBlock { type: "tool_call"; tool: string; args: string; result: string }
+interface ToolBlock { type: "tool_call"; tool: string; args: string; result: string; success?: boolean }
 interface TodoTaskBlock { type: "todo"; tasks: Array<{ id: string; goal: string; status: string }> }
 type MsgBlock = ThoughtBlock | TextBlock | ToolBlock | TodoTaskBlock;
 
@@ -64,10 +64,10 @@ function PhaseContent({ content }: { content: string }) {
 // 子组件：内联工具
 // ================================================================
 
-function ToolCallInline({ tool, args, result }: ToolBlock) {
+function ToolCallInline({ tool, args, result, success }: ToolBlock) {
   const done = !!result;
   const label = tool; // SSE 事件中 tool 已是 displayName（后端已格式化）
-  const isError = done && (result.startsWith("✗") || result.includes("失败") || result.includes("错误"));
+  const isError = done && success === false;
 
   return (
     <div className={`${styles.toolInline} ${done ? styles.toolInlineDone : styles.toolInlineRunning}`}>

@@ -20,20 +20,17 @@ export interface ToolCallBlockProps {
   tool: string;
   args: string;
   result: string;
+  success?: boolean;
 }
 
 // ================================================================
 // 组件
 // ================================================================
 
-export default function ToolCallBlock({ tool, args, result }: ToolCallBlockProps) {
+export default function ToolCallBlock({ tool, args, result, success }: ToolCallBlockProps) {
   const done = !!result;
   const label = tool; // tool 字段已是 displayName（后端已通过 SDK_TOOL_METADATA 格式化）
-  const isError =
-    done &&
-    (result.startsWith("✗") ||
-      result.includes("失败") ||
-      result.includes("错误"));
+  const isError = done && success === false;
 
   return (
     <div

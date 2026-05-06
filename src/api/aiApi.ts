@@ -1,21 +1,13 @@
 /**
- * AI Agent API 封装 — 结构化事件版本
+ * AI Agent API 封装 — WebSocket 版本
  *
- * 后端输出的事件格式（每行一个事件）：
- *   [phase:analyze]          → 阶段开始
- *   [thought]xxx             → 思考过程（实时展开）
- *   [content]xxx             → 用户可见内容
- *   [chat]xxx                → React Agent 模式纯文本流式输出
- *   [tool]name|args          → 工具调用
- *   [tool_result]xxx         → 工具执行结果
- *   [phase:analyze:end]      → 阶段结束
- *   [phase:start]doc_target| → 文档目标
- *   [summary]{json}          → 最终总结
- *   [error]xxx               → 错误
- *   [retry]N                 → 重试
+ * 传输层：
+ *   WebSocket (ws://localhost:3000/ws/agent) — 替代旧的 HTTP SSE
  *
- * AgentMode: "workflow"（4阶段工作流）| "chat"（React Agent 对话模式）
+ * 事件类型定义与旧版完全兼容，前端 AgentPanel 无需任何改动。
  */
+
+import { sendAgentMessage as wsSendAgentMessage } from "./wsAgentClient";
 
 const AI_BASE_URL = "http://localhost:3000/api/ai";
 
@@ -74,6 +66,8 @@ export interface ToolStartEvent {
 export interface ToolResultEvent {
   type: "tool_result";
   content: string;
+  /** 工具执行是否成功（避免前端用 includes("失败") 中文推断） */
+  success: boolean;
 }
 
 /** 文档目标信息 */
@@ -201,163 +195,12 @@ export function sendAgentMessage(
   onDone?: () => void,
   onError?: (error: string) => void
 ): AbortController {
+  const ws = wsSendAgentMessage(message, contextDocId, mode, modelConfig, onEvent, onDone, onError);
+  
+  // 包装为 AbortController 以保持接口兼容
   const controller = new AbortController();
-
-  fetch(`${AI_BASE_URL}/agent/message`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message,
-      contextDocId: contextDocId || undefined,
-      mode: mode || "workflow",
-      modelConfig: modelConfig ? {
-        provider: modelConfig.provider,
-        apiKey: modelConfig.apiKey,
-        model: modelConfig.model,
-        modelKwargs: modelConfig.modelKwargs,
-      } : undefined,
-    }),
-    signal: controller.signal,
-  })
-    .then(async (response) => {
-      if (!response.ok) {
-        const text = await response.text().catch(() => "未知错误");
-        throw new Error(`请求失败 (${response.status}): ${text}`);
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("响应体不可读");
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-
-        // 标准 SSE：用 \n\n 分隔事件
-        const parts = buffer.split("\n\n");
-        buffer = parts.pop() || "";  // 保留不完整的事件
-
-        for (const part of parts) {
-          if (!part.trim()) continue;
-          const event = parseSseEvent(part);
-          if (event) onEvent?.(event);
-        }
-      }
-
-      // 处理剩余 buffer
-      if (buffer.trim()) {
-        const event = parseSseEvent(buffer.trim());
-        if (event) onEvent?.(event);
-      }
-      onDone?.();
-    })
-    .catch((err) => {
-      if (err.name === "AbortError") {
-        // 连接断开（用户取消或网络中断），确保前端状态重置
-        onDone?.();
-        return;
-      }
-      onError?.(err.message || "请求失败");
-    });
-
+  controller.signal.addEventListener("abort", () => ws.close());
   return controller;
-}
-
-/**
- * 解析标准 SSE 事件帧为结构化事件对象
- *
- * 标准格式（替代旧 [prefix]content 自定义协议）：
- *   event: <type>
- *   data: <json_payload>
- *   （以 \n\n 分隔事件帧）
- */
-function parseSseEvent(text: string): AgentEvent | null {
-  const lines = text.split("\n");
-  let eventType = "";
-  const dataLines: string[] = [];
-
-  for (const line of lines) {
-    if (line.startsWith("event: ")) {
-      eventType = line.slice(7).trim();
-    } else if (line.startsWith("data: ")) {
-      dataLines.push(line.slice(6));
-    }
-  }
-
-  if (!eventType || dataLines.length === 0) return null;
-
-  let data: Record<string, unknown>;
-  try {
-    data = JSON.parse(dataLines.join("\n"));
-  } catch {
-    return null;
-  }
-
-  switch (eventType) {
-    case "phase_start":
-      return { type: "phase_start", phase: data.phase as string };
-
-    case "phase_end":
-      return { type: "phase_end", phase: data.phase as string };
-
-    case "phase_status":
-      return { type: "phase_status", text: data.text as string };
-
-    case "thought":
-      return { type: "thought", content: data.content as string };
-
-    case "content":
-      return { type: "content", content: data.content as string };
-
-    case "chat":
-      return { type: "chat_content", content: data.content as string };
-
-    case "doc_target":
-      return { type: "doc_target", fileName: data.fileName as string };
-
-    case "tool_start":
-      return { type: "tool_start", tool: data.tool as string, args: data.args as string };
-
-    case "tool_result": {
-      const success = data.success as boolean;
-      const tool = data.tool as string;
-      const result = data.result as string;
-      return {
-        type: "tool_result",
-        content: success
-          ? `✓ ${tool}：${result}`
-          : `✗ ${tool}：${result}`,
-      };
-    }
-
-    case "summary":
-      return {
-        type: "summary",
-        result: (data.result as string) || "failed",
-        summary_text: (data.summary_text as string) || "",
-        detail: (data.detail as string) || "",
-        failed_tasks: (data.failed_tasks as string[]) || [],
-      };
-
-    case "todo_list":
-      return { type: "todo_list", tasks: (data.tasks as Array<{ id: string; goal: string }>) || [] };
-
-    case "todo_done":
-      return { type: "todo_done", id: data.id as string };
-
-    case "error":
-      return { type: "error", message: data.message as string };
-
-    case "warning":
-      return { type: "warning", message: data.message as string };
-
-    default:
-      return null;
-  }
 }
 
 /**

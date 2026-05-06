@@ -18,8 +18,7 @@ import {
   LoadingOutlined,
   MinusOutlined,
 } from "@ant-design/icons";
-import { Bubble, Sender, ThoughtChain } from "@ant-design/x";
-import type { ThoughtChainItemType } from "@ant-design/x";
+import { Bubble, Sender } from "@ant-design/x";
 import { sendAgentMessage, resetAgent, getAgentStatus } from "@/api/aiApi";
 import type { AgentEvent, AgentMode, ModelConfig } from "@/api/aiApi";
 import SettingsModal from "./SettingsModal";
@@ -34,7 +33,7 @@ import styles from "./AgentPanel.module.css";
 type MsgBlock =
   | { type: "text"; content: string }
   | { type: "thought"; lines: string[] }
-  | { type: "tool_call"; tool: string; args: string; result: string }
+  | { type: "tool_call"; tool: string; args: string; result: string; success?: boolean }
   | { type: "summary"; content: string }
   | { type: "todo"; tasks: Array<{ id: string; goal: string; status: string }> };
 
@@ -243,8 +242,9 @@ export default function AgentPanel({
           for (let i = state.blocks.length - 1; i >= 0; i--) {
             const b = state.blocks[i];
             if (b.type === "tool_call") {
-              (b as Extract<MsgBlock, { type: "tool_call" }>).result =
-                event.content;
+              const tc = b as Extract<MsgBlock, { type: "tool_call" }>;
+              tc.result = event.content;
+              tc.success = event.success;
               break;
             }
           }
@@ -378,23 +378,6 @@ export default function AgentPanel({
   }, []);
 
   // ================================================================
-  // 渲染辅助
-  // ================================================================
-
-  /** 将扁平块列表转为 @ant-design/x ThoughtChain items */
-  const buildThoughtItems = (
-    thoughtLines: string[]
-  ): ThoughtChainItemType[] => {
-    return [
-      {
-        title: "思考内容",
-        description: thoughtLines.join(" "),
-        status: "success" as const,
-      },
-    ];
-  };
-
-  // ================================================================
   // 折叠状态
   // ================================================================
 
@@ -502,20 +485,24 @@ export default function AgentPanel({
                 />
               ) : (
                 <div className={styles.assistantBlock}>
-                  {/* 思考过程 */}
+                  {/* 思考过程（Markdown 渲染） */}
                   {msg.blocks
                     .filter((b) => b.type === "thought")
                     .map((b, bi) => {
-                      const thought = b as Extract<
-                        MsgBlock,
-                        { type: "thought" }
-                      >;
+                      const thought = b as Extract<MsgBlock, { type: "thought" }>;
+                      const mdContent = thought.lines.join("\n\n");
                       return (
-                        <ThoughtChain
-                          key={bi}
-                          items={buildThoughtItems(thought.lines)}
-                          style={{ marginBottom: 8 }}
-                        />
+                        <details key={bi} className={styles.thoughtSection}>
+                          <summary className={styles.thoughtSummary}>思考内容</summary>
+                          <div className={styles.thoughtBody}>
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              components={xMarkdownComponents}
+                            >
+                              {mdContent}
+                            </ReactMarkdown>
+                          </div>
+                        </details>
                       );
                     })}
 
@@ -530,6 +517,7 @@ export default function AgentPanel({
                           tool={tc.tool}
                           args={tc.args}
                           result={tc.result}
+                          success={tc.success}
                         />
                       );
                     })}
