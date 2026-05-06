@@ -37,11 +37,14 @@ const TOOL_LABELS: Record<string, string> = {
 // ================================================================
 
 function CollapsibleThought({ lines }: { lines: string[] }) {
+  const mdContent = lines.join("\n\n");
   return (
     <details className={styles.thoughtSection}>
       <summary className={styles.thoughtSummary}>思考内容</summary>
       <div className={styles.thoughtBody}>
-        {lines.map((l, i) => <p key={i} className={styles.thoughtLine}>{l}</p>)}
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={xMarkdownComponents}>
+          {mdContent}
+        </ReactMarkdown>
       </div>
     </details>
   );

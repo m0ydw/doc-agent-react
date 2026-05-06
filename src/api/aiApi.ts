@@ -82,6 +82,25 @@ export interface DocTargetEvent {
   fileName: string;
 }
 
+/** 阶段内容（如阶段分析文本） */
+export interface PhaseContentEvent {
+  type: "phase_content";
+  phase: string;
+  content: string;
+}
+
+/** Todo 列表 */
+export interface TodoListEvent {
+  type: "todo_list";
+  tasks: Array<{ id: string; goal: string }>;
+}
+
+/** Todo 项完成 */
+export interface TodoDoneEvent {
+  type: "todo_done";
+  id: string;
+}
+
 /** 最终总结 */
 export interface SummaryEvent {
   type: "summary";
@@ -97,6 +116,12 @@ export interface ErrorEvent {
   message: string;
 }
 
+/** 警告事件（改进项5 — 降级通知，不影响流程） */
+export interface WarningEvent {
+  type: "warning";
+  message: string;
+}
+
 /** 联合事件类型 */
 export type AgentEvent =
   | PhaseEvent | PhaseEndEvent
@@ -105,7 +130,7 @@ export type AgentEvent =
   | DocTargetEvent
   | SummaryEvent | PhaseContentEvent
   | TodoListEvent | TodoDoneEvent
-  | ErrorEvent;
+  | ErrorEvent | WarningEvent;
 
 // ================================================================
 // API 函数
@@ -126,7 +151,7 @@ export interface ModelConfig {
   provider: "zhipu" | "deepseek" | "openai" | string;
   apiKey?: string;
   model?: string;
-  modelKwargs?: Record<string, any>;
+  modelKwargs?: Record<string, unknown>;
 }
 
 /**
@@ -137,7 +162,7 @@ export interface ModelPreset {
   label: string;
   provider: string;
   model?: string;
-  modelKwargs?: Record<string, any>;
+  modelKwargs?: Record<string, unknown>;
   apiKey?: string;
 }
 
@@ -277,9 +302,13 @@ function parseEventLine(line: string): AgentEvent | null {
       return null;
     }
 
-    // 思考过程
-    case "thought":
-      return { type: "thought", content };
+    // 思考过程 — 也处理 [br] 标记
+    case "thought": {
+      const formatted = content
+        .replace(/\[br\]\[br\]/g, "\n\n")
+        .replace(/\[br\]/g, "  \n");
+      return { type: "thought", content: formatted };
+    }
 
     // 用户可见内容 — 将 [br] 转为 Markdown 断句
     case "content": {
@@ -357,6 +386,10 @@ function parseEventLine(line: string): AgentEvent | null {
     // 错误
     case "error":
       return { type: "error", message: content };
+
+    // 警告（改进项5 — 降级通知）
+    case "warning":
+      return { type: "warning", message: content };
 
     default:
       return null;

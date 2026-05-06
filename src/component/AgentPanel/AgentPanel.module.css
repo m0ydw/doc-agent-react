@@ -29,8 +29,11 @@
 .thoughtSection { margin-bottom: 8px; }
 .thoughtSummary { cursor: pointer; font-size: 12px; color: #999; user-select: none; padding: 4px 0; }
 .thoughtSummary:hover { color: #bbb; }
-.thoughtBody { margin-top: 4px; padding-left: 8px; border-left: 2px solid #3a3a5a; }
-.thoughtLine { margin: 2px 0; font-size: 12px; color: #bbb; line-height: 1.5; }
+.thoughtBody { margin-top: 4px; padding-left: 8px; border-left: 2px solid #3a3a5a; color: #ccc; }
+.thoughtBody p { color: #ccc; margin: 3px 0; line-height: 1.5; }
+.thoughtBody ul, .thoughtBody ol { padding-left: 18px; color: #ccc; }
+.thoughtBody li { color: #bbb; }
+.thoughtBody strong { color: #ddd; }
 
 /* ---- 内联工具 ---- */
 .toolInline { margin: 6px 0; padding: 8px 10px; border-radius: 6px; background: #1a1a35; border: 1px solid #2a2a55; animation: fadeSlideIn 0.25s ease; transition: border-color 0.3s; }
