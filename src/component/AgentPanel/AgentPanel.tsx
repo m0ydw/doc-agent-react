@@ -172,6 +172,10 @@ export default function AgentPanel({
           commitRender();
           break;
         }
+        case "phase_status": {
+          // 阶段状态文本（如"正在分析您的需求..."），前端无需渲染
+          break;
+        }
         case "thought": {
           if (!state.currentThought) {
             state.currentThought = [];

@@ -1,8 +1,8 @@
 /**
- * AssistantCard — 统一助手卡片
+ * AssistantCard — 统一助手卡片（@deprecated AgentPanel 已内联渲染 blocks）
  *
- * 按原始顺序渲染 blocks：思考 → 内容 → 工具 → 思考 → 内容... 自然穿插
- * Todo 列表随工具执行实时更新状态
+ * 保留此组件供未来可能的独立使用场景。
+ * Todo 状态已改为事件驱动（task.status），不再用中文关键词推断。
  */
 
 import ReactMarkdown from "react-markdown";
@@ -19,7 +19,7 @@ import styles from "./AgentPanel.module.css";
 interface ThoughtBlock { type: "thought"; lines: string[] }
 interface TextBlock { type: "text" | "summary"; content: string }
 interface ToolBlock { type: "tool_call"; tool: string; args: string; result: string }
-interface TodoTaskBlock { type: "todo"; tasks: Array<{ id: string; goal: string }> }
+interface TodoTaskBlock { type: "todo"; tasks: Array<{ id: string; goal: string; status: string }> }
 type MsgBlock = ThoughtBlock | TextBlock | ToolBlock | TodoTaskBlock;
 
 interface AssistantCardProps {
@@ -84,51 +84,30 @@ function ToolCallInline({ tool, args, result }: ToolBlock) {
 }
 
 // ================================================================
-// 子组件：Todo 列表
+// 子组件：Todo 列表（事件驱动状态，不再用中文关键词推断）
 // ================================================================
 
-function TodoList({ tasks, toolBlocks }: { tasks: Array<{ id: string; goal: string }>; toolBlocks: ToolBlock[] }) {
-  const doneTools = toolBlocks.filter(t => t.result && !t.result.startsWith("✗"));
-  const runningTool = toolBlocks.filter(t => !t.result).length > 0;
-
-  const getStatus = (task: { id: string; goal: string }) => {
-    const goal = task.goal;
-    // 保存工具完成 → 保存任务完成
-    if (doneTools.some(t => t.tool === "sdk_save")) return "done";
-    // 替换完成
-    if (doneTools.some(t => (t.tool.includes("replace") && (goal.includes("替换") || goal.includes("修改") || goal.includes("修"))))) return "done";
-    // 查找完成
-    if (doneTools.some(t => (t.tool.includes("find") && (goal.includes("查找") || goal.includes("搜索") || goal.includes("定位"))))) return "done";
-    // 读取完成
-    if (doneTools.some(t => t.tool === "sdk_get_text" && goal.includes("读取"))) return "done";
-    // 运行中
-    if (runningTool && !doneTools.length && goal.includes("查找")) return "running";
-    if (runningTool && doneTools.some(t => t.tool.includes("find")) && !doneTools.some(t => t.tool.includes("replace")) && goal.includes("替换")) return "running";
-    // 兜底：有工具运行中 → 下一个可能是此任务
-    if (runningTool) {
-      const doneCount = doneTools.length;
-      const taskIndex = tasks.findIndex(t => t.id === task.id);
-      if (taskIndex === doneCount) return "running";
-      if (taskIndex < doneCount) return "done";
-    }
-    return "pending";
-  };
-
+function TodoList({ tasks }: { tasks: Array<{ id: string; goal: string; status: string }> }) {
   return (
     <div className={styles.todoList}>
-      {tasks.map(task => {
-        const status = getStatus(task);
-        return (
-          <div key={task.id} className={`${styles.todoItem} ${styles[`todoItem${status.charAt(0).toUpperCase() + status.slice(1)}`]}`}>
-            <span className={styles.todoCheck}>
-              {status === "done" ? <CheckCircleOutlined style={{ color: "#52c41a" }} />
-                : status === "running" ? <LoadingOutlined spin style={{ color: "#1890ff" }} />
-                : <MinusOutlined style={{ color: "#555" }} />}
-            </span>
-            <span className={`${styles.todoGoal} ${status === "done" ? styles.todoGoalDone : ""}`}>{task.goal}</span>
-          </div>
-        );
-      })}
+      {tasks.map((task) => (
+        <div
+          key={task.id}
+          className={`${styles.todoItem} ${
+            task.status === "done" ? styles.todoItemDone :
+            task.status === "pending" ? styles.todoItemPending : ""
+          }`}
+        >
+          <span className={styles.todoCheck}>
+            {task.status === "done" ? <CheckCircleOutlined style={{ color: "#52c41a" }} />
+              : task.status === "running" ? <LoadingOutlined spin style={{ color: "#1890ff" }} />
+              : <MinusOutlined style={{ color: "#555" }} />}
+          </span>
+          <span className={`${styles.todoGoal} ${task.status === "done" ? styles.todoGoalDone : ""}`}>
+            {task.goal}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -142,9 +121,6 @@ export default function AssistantCard({ blocks, streaming }: AssistantCardProps)
     return streaming ? <div className={styles.card}><div className={styles.cardLoading}>分析中...</div></div> : null;
   }
 
-  // 提取工具块用于 todo 状态计算
-  const toolBlocks = blocks.filter(b => b.type === "tool_call") as ToolBlock[];
-
   return (
     <div className={`${styles.card} ${streaming ? styles.cardStreaming : ""}`}>
       {blocks.map((b, i) => {
@@ -157,7 +133,7 @@ export default function AssistantCard({ blocks, streaming }: AssistantCardProps)
           case "tool_call":
             return <ToolCallInline key={i} {...b} />;
           case "todo":
-            return <TodoList key={i} tasks={b.tasks} toolBlocks={toolBlocks} />;
+            return <TodoList key={i} tasks={b.tasks} />;
           default:
             return null;
         }

@@ -122,12 +122,18 @@ export interface WarningEvent {
   message: string;
 }
 
+/** 阶段状态事件 */
+export interface PhaseStatusEvent {
+  type: "phase_status";
+  text: string;
+}
+
 /** 联合事件类型 */
 export type AgentEvent =
   | PhaseEvent | PhaseEndEvent
   | ThoughtEvent | ContentEvent | ChatContentEvent
   | ToolCallEvent | ToolStartEvent | ToolResultEvent
-  | DocTargetEvent
+  | DocTargetEvent | PhaseStatusEvent
   | SummaryEvent | PhaseContentEvent
   | TodoListEvent | TodoDoneEvent
   | ErrorEvent | WarningEvent;
@@ -231,21 +237,20 @@ export function sendAgentMessage(
 
         buffer += decoder.decode(value, { stream: true });
 
-        // 按行分割，逐行解析
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
+        // 标准 SSE：用 \n\n 分隔事件
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";  // 保留不完整的事件
 
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          const event = parseEventLine(trimmed);
+        for (const part of parts) {
+          if (!part.trim()) continue;
+          const event = parseSseEvent(part);
           if (event) onEvent?.(event);
         }
       }
 
       // 处理剩余 buffer
       if (buffer.trim()) {
-        const event = parseEventLine(buffer.trim());
+        const event = parseSseEvent(buffer.trim());
         if (event) onEvent?.(event);
       }
       onDone?.();
@@ -263,150 +268,96 @@ export function sendAgentMessage(
 }
 
 /**
- * 解析一行 SSE 事件文本为结构化事件对象
+ * 解析标准 SSE 事件帧为结构化事件对象
  *
- * 后端事件格式: [type]content
+ * 标准格式（替代旧 [prefix]content 自定义协议）：
+ *   event: <type>
+ *   data: <json_payload>
+ *   （以 \n\n 分隔事件帧）
  */
-function parseEventLine(line: string): AgentEvent | null {
-  // 匹配 [prefix]content
-  const match = line.match(/^\[([^\]]+)\](.*)$/);
-  if (!match) return null;
+function parseSseEvent(text: string): AgentEvent | null {
+  const lines = text.split("\n");
+  let eventType = "";
+  const dataLines: string[] = [];
 
-  const prefix = match[1];
-  const content = match[2].trim();
+  for (const line of lines) {
+    if (line.startsWith("event: ")) {
+      eventType = line.slice(7).trim();
+    } else if (line.startsWith("data: ")) {
+      dataLines.push(line.slice(6));
+    }
+  }
 
-  switch (prefix) {
-    // 阶段开始 — [phase:analyze]
-    case "phase:analyze":
-    case "phase:plan":
-    case "phase:execute":
-    case "phase:validate": {
-      const phase = prefix.split(":")[1];
-      return { type: "phase_start", phase };
+  if (!eventType || dataLines.length === 0) return null;
+
+  let data: Record<string, unknown>;
+  try {
+    data = JSON.parse(dataLines.join("\n"));
+  } catch {
+    return null;
+  }
+
+  switch (eventType) {
+    case "phase_start":
+      return { type: "phase_start", phase: data.phase as string };
+
+    case "phase_end":
+      return { type: "phase_end", phase: data.phase as string };
+
+    case "phase_status":
+      return { type: "phase_status", text: data.text as string };
+
+    case "thought":
+      return { type: "thought", content: data.content as string };
+
+    case "content":
+      return { type: "content", content: data.content as string };
+
+    case "chat":
+      return { type: "chat_content", content: data.content as string };
+
+    case "doc_target":
+      return { type: "doc_target", fileName: data.fileName as string };
+
+    case "tool_start":
+      return { type: "tool_start", tool: data.tool as string, args: data.args as string };
+
+    case "tool_result": {
+      const success = data.success as boolean;
+      const tool = data.tool as string;
+      const result = data.result as string;
+      return {
+        type: "tool_result",
+        content: success
+          ? `✓ ${tool}：${result}`
+          : `✗ ${tool}：${result}`,
+      };
     }
 
-    // 阶段结束 — [phase:analyze:end]
-    case "phase:analyze:end":
-    case "phase:plan:end":
-    case "phase:execute:end":
-    case "phase:validate:end": {
-      const phase = prefix.split(":")[1];
-      return { type: "phase_end", phase };
-    }
+    case "summary":
+      return {
+        type: "summary",
+        result: (data.result as string) || "failed",
+        summary_text: (data.summary_text as string) || "",
+        detail: (data.detail as string) || "",
+        failed_tasks: (data.failed_tasks as string[]) || [],
+      };
 
-    // 文档目标 — [phase:start]doc_target|filename
-    case "phase:start": {
-      if (content.startsWith("doc_target|")) {
-        return { type: "doc_target", fileName: content.slice(11) };
-      }
-      return null;
-    }
+    case "todo_list":
+      return { type: "todo_list", tasks: (data.tasks as Array<{ id: string; goal: string }>) || [] };
 
-    // 思考过程 — JSON 编码（新格式）或 [br] 标记（旧格式兼容）
-    case "thought": {
-      return { type: "thought", content: decodeEventContent(content) };
-    }
-
-    // 用户可见内容 — JSON 编码（新格式）或 [br] 标记（旧格式兼容）
-    case "content": {
-      return { type: "content", content: decodeEventContent(content) };
-    }
-
-    // React Agent 模式流式内容 — 同上
-    case "chat": {
-      return { type: "chat_content", content: decodeEventContent(content) };
-    }
-
-    // 阶段内容 — [phase_content]phase|content
-    case "phase_content": {
-      const sep = content.indexOf("|");
-      if (sep > 0) return { type: "phase_content", phase: content.slice(0, sep), content: content.slice(sep + 1) };
-      return { type: "phase_content", phase: "", content };
-    }
-
-    // Todo 列表 — [todo_list]{json}
-    case "todo_list": {
-      try {
-        const data = JSON.parse(content);
-        return { type: "todo_list", tasks: data.tasks || [] };
-      } catch { return null; }
-    }
-
-    // Todo 完成 — [todo_done]id
     case "todo_done":
-      return { type: "todo_done", id: content };
+      return { type: "todo_done", id: data.id as string };
 
-    // 工具调用开始 — [tool_start]name|args
-    case "tool_start": {
-      const sep = content.indexOf("|");
-      if (sep > 0) {
-        return { type: "tool_start", tool: content.slice(0, sep), args: content.slice(sep + 1) };
-      }
-      return { type: "tool_start", tool: content, args: "" };
-    }
-
-    // 工具调用 — [tool]name|args
-    case "tool": {
-      const sep = content.indexOf("|");
-      if (sep > 0) {
-        return { type: "tool_call", tool: content.slice(0, sep), args: content.slice(sep + 1) };
-      }
-      return { type: "tool_call", tool: content, args: "" };
-    }
-
-    // 工具执行结果
-    case "tool_result":
-      return { type: "tool_result", content };
-
-    // 最终总结 — [summary]{json}
-    case "summary": {
-      try {
-        const data = JSON.parse(content);
-        return {
-          type: "summary",
-          result: data.result || "failed",
-          summary_text: data.summary_text || "",
-          detail: data.detail || "",
-          failed_tasks: data.failed_tasks || [],
-        };
-      } catch {
-        return null;
-      }
-    }
-
-    // 错误
     case "error":
-      return { type: "error", message: content };
+      return { type: "error", message: data.message as string };
 
-    // 警告（改进项5 — 降级通知）
     case "warning":
-      return { type: "warning", message: content };
+      return { type: "warning", message: data.message as string };
 
     default:
       return null;
   }
-}
-
-/**
- * 解码事件内容：先尝试 JSON 解码（新格式），再回退 [br] 替换（旧格式兼容）
- *
- * 新格式（v2）：后端用 JSON.stringify 编码，\n → \\n，前端 JSON.parse 还原
- * 旧格式（v1）：后端用 [br] 魔术字符串替换真实换行符
- */
-function decodeEventContent(content: string): string {
-  // 尝试 JSON 解码（新格式以 " 开头）
-  if (content.startsWith('"')) {
-    try {
-      return JSON.parse(content) as string;
-    } catch {
-      // JSON 解码失败，继续走旧格式回退
-    }
-  }
-
-  // 旧格式回退：还原 [br] 魔术字符串
-  return content
-    .replace(/\[br\]\[br\]/g, "\n\n")
-    .replace(/\[br\]/g, "  \n");
 }
 
 /**
