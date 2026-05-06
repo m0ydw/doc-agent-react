@@ -1,15 +1,15 @@
 /**
- * Agent 对话面板 — @ant-design/x 现代化改造
+ * Agent 对话面板 — 阶段卡片渲染（LangGraph Studio 风格）
  *
- * 渲染：Bubble（气泡）+ ThoughtChain（思考链）+ Sender（输入）+ ToolCallBlock（工具）
- * 流式：content 累积到同一 text block，ReactMarkdown 完整渲染
- * 暗色主题：ConfigProvider darkAlgorithm
+ * 每个阶段（analyze/plan/execute/generate/validate）渲染为独立卡片，
+ * 卡片内包含该阶段的思考、工具调用、内容输出。
+ * 事件驱动：phase_start 创建卡片，phase_end 完成卡片。
  */
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Button, Tooltip, Flex, ConfigProvider, theme } from "antd";
+import { Button, Tooltip, Flex, ConfigProvider, theme, Tag } from "antd";
 import {
   RightOutlined,
   ReloadOutlined,
@@ -27,7 +27,7 @@ import xMarkdownComponents from "./xMarkdown";
 import styles from "./AgentPanel.module.css";
 
 // ================================================================
-// 扁平块类型
+// 类型
 // ================================================================
 
 type MsgBlock =
@@ -37,19 +37,40 @@ type MsgBlock =
   | { type: "summary"; content: string }
   | { type: "todo"; tasks: Array<{ id: string; goal: string; status: string }> };
 
+/** 阶段卡片 */
+interface PhaseCard {
+  phase: string;
+  label: string;
+  status: "running" | "done";
+  blocks: MsgBlock[];
+}
+
 interface AssistantMsg {
   role: "assistant";
-  blocks: MsgBlock[];
+  phases: PhaseCard[];
   streaming: boolean;
 }
 
 type Message = { role: "user"; content: string } | AssistantMsg;
 
 interface BuildState {
-  blocks: MsgBlock[];
+  phases: PhaseCard[];
+  activePhase: PhaseCard | null;
   currentThought: string[] | null;
-  activePhase: string | null;
 }
+
+// ================================================================
+// 阶段标签映射
+// ================================================================
+
+const PHASE_LABELS: Record<string, string> = {
+  docTarget: "文档定位",
+  analyze: "需求分析",
+  plan: "任务规划",
+  execute: "文档处理",
+  generate: "内容生成",
+  validate: "结果验证",
+};
 
 // ================================================================
 // 暗色主题
@@ -105,25 +126,27 @@ export default function AgentPanel({
 
   // Refs
   const stateRef = useRef<BuildState>({
-    blocks: [],
-    currentThought: null,
+    phases: [],
     activePhase: null,
+    currentThought: null,
   });
-  const abortRef = useRef<AbortController | null>(null);
+  const abortRef = useRef<AbortController | { close: () => void } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // 快照提交
   const commitRender = useCallback(() => {
-    const snapshot = stateRef.current.blocks.map((b) => {
-      if (b.type === "thought") return { ...b, lines: [...b.lines] };
-      if (b.type === "tool_call") return { ...b };
-      return { ...b };
-    });
+    const snapshot = stateRef.current.phases.map((p) => ({
+      ...p,
+      blocks: p.blocks.map((b) => {
+        if (b.type === "thought") return { ...b, lines: [...b.lines] };
+        return { ...b };
+      }),
+    }));
     setMessages((prev) => {
       const updated = [...prev];
       const last = updated[updated.length - 1];
       if (last && last.role === "assistant") {
-        updated[updated.length - 1] = { ...last, blocks: snapshot };
+        updated[updated.length - 1] = { ...last, phases: snapshot };
       }
       return updated;
     });
@@ -162,23 +185,37 @@ export default function AgentPanel({
 
       switch (event.type) {
         case "phase_start": {
-          state.activePhase = event.phase;
+          const phase = event.phase;
+          const card: PhaseCard = {
+            phase,
+            label: PHASE_LABELS[phase] || phase,
+            status: "running",
+            blocks: [],
+          };
+          state.phases.push(card);
+          state.activePhase = card;
+          state.currentThought = null;
           commitRender();
           break;
         }
         case "phase_end": {
-          if (state.activePhase === event.phase) state.activePhase = null;
+          if (state.activePhase) {
+            state.activePhase.status = "done";
+          }
+          state.activePhase = null;
+          state.currentThought = null;
           commitRender();
           break;
         }
         case "phase_status": {
-          // 阶段状态文本（如"正在分析您的需求..."），前端无需渲染
           break;
         }
         case "thought": {
+          if (!state.activePhase) break;
+          const ap = state.activePhase;
           if (!state.currentThought) {
             state.currentThought = [];
-            state.blocks.push({ type: "thought", lines: state.currentThought });
+            ap.blocks.push({ type: "thought", lines: state.currentThought });
           }
           state.currentThought.push(event.content);
           commitRender();
@@ -186,61 +223,51 @@ export default function AgentPanel({
         }
         case "content": {
           state.currentThought = null;
-          const lastBlock = state.blocks[state.blocks.length - 1];
+          const ap = state.activePhase;
+          const targetBlocks = ap ? ap.blocks : state.phases[state.phases.length - 1]?.blocks || [];
+          const lastBlock = targetBlocks[targetBlocks.length - 1];
           if (lastBlock && lastBlock.type === "text") {
-            (lastBlock as Extract<MsgBlock, { type: "text" }>).content +=
-              event.content;
+            (lastBlock as Extract<MsgBlock, { type: "text" }>).content += event.content;
           } else {
-            state.blocks.push({ type: "text", content: event.content });
+            targetBlocks.push({ type: "text", content: event.content });
           }
           commitRender();
           break;
         }
         case "chat_content": {
           state.currentThought = null;
-          const lastBlock = state.blocks[state.blocks.length - 1];
+          const lastBlock = state.phases[state.phases.length - 1]?.blocks?.slice(-1)[0];
           if (lastBlock && lastBlock.type === "text") {
-            (lastBlock as Extract<MsgBlock, { type: "text" }>).content +=
-              event.content;
+            (lastBlock as Extract<MsgBlock, { type: "text" }>).content += event.content;
           } else {
-            state.blocks.push({ type: "text", content: event.content });
+            state.phases[state.phases.length - 1]?.blocks.push({ type: "text", content: event.content });
           }
           commitRender();
           break;
         }
         case "tool_start": {
           state.currentThought = null;
-          state.blocks.push({
-            type: "tool_call",
-            tool: event.tool,
-            args: event.args,
-            result: "",
-          });
+          const ap = state.activePhase || state.phases[state.phases.length - 1];
+          if (!ap) break;
+          ap.blocks.push({ type: "tool_call", tool: event.tool, args: event.args, result: "" });
           commitRender();
           break;
         }
         case "tool_call": {
           state.currentThought = null;
-          const last = state.blocks[state.blocks.length - 1];
-          if (
-            last &&
-            last.type === "tool_call" &&
-            last.tool === event.tool &&
-            last.result === ""
-          )
-            break;
-          state.blocks.push({
-            type: "tool_call",
-            tool: event.tool,
-            args: event.args,
-            result: "",
-          });
+          const ap = state.activePhase || state.phases[state.phases.length - 1];
+          if (!ap) break;
+          const last = ap.blocks[ap.blocks.length - 1];
+          if (last && last.type === "tool_call" && last.tool === event.tool && last.result === "") break;
+          ap.blocks.push({ type: "tool_call", tool: event.tool, args: event.args, result: "" });
           commitRender();
           break;
         }
         case "tool_result": {
-          for (let i = state.blocks.length - 1; i >= 0; i--) {
-            const b = state.blocks[i];
+          const ap = state.activePhase || state.phases[state.phases.length - 1];
+          if (!ap) break;
+          for (let i = ap.blocks.length - 1; i >= 0; i--) {
+            const b = ap.blocks[i];
             if (b.type === "tool_call") {
               const tc = b as Extract<MsgBlock, { type: "tool_call" }>;
               tc.result = event.content;
@@ -253,10 +280,7 @@ export default function AgentPanel({
         }
         case "doc_target": {
           state.currentThought = null;
-          state.blocks.push({
-            type: "text",
-            content: `目标文档：${event.fileName}`,
-          });
+          state.phases[0]?.blocks.push({ type: "text", content: `目标文档：${event.fileName}` });
           commitRender();
           break;
         }
@@ -264,37 +288,31 @@ export default function AgentPanel({
           state.currentThought = null;
           state.activePhase = null;
           const detail = event.detail ? `\n\n${event.detail}` : "";
-          const failed =
-            event.failed_tasks.length > 0
-              ? `\n\n失败：${event.failed_tasks.join("、")}`
-              : "";
-          state.blocks.push({
-            type: "summary",
-            content: `${event.summary_text}${detail}${failed}`,
-          });
+          const failed = event.failed_tasks.length > 0 ? `\n\n失败：${event.failed_tasks.join("、")}` : "";
+          // summary 放在最后一个阶段的 blocks 中
+          const lastPhase = state.phases[state.phases.length - 1];
+          if (lastPhase) {
+            lastPhase.blocks.push({ type: "summary", content: `${event.summary_text}${detail}${failed}` });
+          }
           commitRender();
           setIsLoading(false);
           break;
         }
         case "todo_list": {
-          // 标准 #9：事件驱动 Todo 状态，替代中文关键词推断
           state.currentThought = null;
-          const tasks = event.tasks.map((t) => ({
-            id: t.id,
-            goal: t.goal,
-            status: "pending" as const,
-          }));
-          state.blocks.push({ type: "todo", tasks });
+          const tasks = event.tasks.map((t) => ({ id: t.id, goal: t.goal, status: "pending" as const }));
+          const ap = state.activePhase || state.phases[state.phases.length - 1];
+          if (ap) ap.blocks.push({ type: "todo", tasks });
           commitRender();
           break;
         }
         case "todo_done": {
-          // 标准 #9：更新对应任务的 status 为 done
-          for (let i = state.blocks.length - 1; i >= 0; i--) {
-            const b = state.blocks[i];
+          const ap = state.activePhase || state.phases[state.phases.length - 1];
+          if (!ap) break;
+          for (let i = ap.blocks.length - 1; i >= 0; i--) {
+            const b = ap.blocks[i];
             if (b.type === "todo") {
-              const todoBlock = b as Extract<MsgBlock, { type: "todo" }>;
-              const task = todoBlock.tasks.find((t) => t.id === event.id);
+              const task = (b as Extract<MsgBlock, { type: "todo" }>).tasks.find((t) => t.id === event.id);
               if (task) task.status = "done";
               break;
             }
@@ -305,10 +323,10 @@ export default function AgentPanel({
         case "error": {
           state.currentThought = null;
           state.activePhase = null;
-          state.blocks.push({
-            type: "text",
-            content: `错误：${event.message}`,
-          });
+          const lastPhase = state.phases[state.phases.length - 1];
+          if (lastPhase) {
+            lastPhase.blocks.push({ type: "text", content: `错误：${event.message}` });
+          }
           commitRender();
           setIsLoading(false);
           break;
@@ -336,14 +354,14 @@ export default function AgentPanel({
       setInputText("");
       setIsLoading(true);
       stateRef.current = {
-        blocks: [],
-        currentThought: null,
+        phases: [],
         activePhase: null,
+        currentThought: null,
       };
       setMessages((prev) => [...prev, { role: "user", content: msg }]);
       setMessages((prev) => [
         ...prev,
-        { role: "assistant" as const, blocks: [], streaming: true },
+        { role: "assistant" as const, phases: [], streaming: true },
       ]);
       abortRef.current = sendAgentMessage(
         msg,
@@ -368,7 +386,9 @@ export default function AgentPanel({
   );
 
   const handleCancel = useCallback(() => {
-    abortRef.current?.abort();
+    if (abortRef.current) {
+      "abort" in abortRef.current ? abortRef.current.abort() : abortRef.current.close();
+    }
     setIsLoading(false);
   }, []);
   const handleReset = useCallback(async () => {
@@ -485,117 +505,93 @@ export default function AgentPanel({
                 />
               ) : (
                 <div className={styles.assistantBlock}>
-                  {/* 思考过程（Markdown 渲染） */}
-                  {msg.blocks
-                    .filter((b) => b.type === "thought")
-                    .map((b, bi) => {
-                      const thought = b as Extract<MsgBlock, { type: "thought" }>;
-                      const mdContent = thought.lines.join("\n\n");
-                      return (
-                        <details key={bi} className={styles.thoughtSection}>
-                          <summary className={styles.thoughtSummary}>思考内容</summary>
-                          <div className={styles.thoughtBody}>
-                            <ReactMarkdown
-                              remarkPlugins={[remarkGfm]}
-                              components={xMarkdownComponents}
-                            >
-                              {mdContent}
-                            </ReactMarkdown>
-                          </div>
-                        </details>
-                      );
-                    })}
+                  {/* 阶段卡片 */}
+                  {msg.phases.map((phase, pi) => (
+                    <div key={pi} className={styles.phaseCard}>
+                      <div className={styles.phaseCardHeader}>
+                        <span className={styles.phaseCardIcon}>
+                          {phase.status === "running"
+                            ? <LoadingOutlined spin style={{ color: "#1890ff", fontSize: 14 }} />
+                            : <CheckCircleOutlined style={{ color: "#52c41a", fontSize: 14 }} />}
+                        </span>
+                        <span className={styles.phaseCardLabel}>{phase.label}</span>
+                        <Tag color={phase.status === "running" ? "processing" : "success"} style={{ fontSize: 10, marginLeft: 8 }}>
+                          {phase.status === "running" ? "进行中" : "完成"}
+                        </Tag>
+                      </div>
+                      <div className={styles.phaseCardBody}>
+                        {/* 思考过程 */}
+                        {phase.blocks
+                          .filter((b) => b.type === "thought")
+                          .map((b, bi) => {
+                            const thought = b as Extract<MsgBlock, { type: "thought" }>;
+                            return (
+                              <details key={bi} className={styles.thoughtSection}>
+                                <summary className={styles.thoughtSummary}>思考内容</summary>
+                                <div className={styles.thoughtBody}>
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={xMarkdownComponents}>
+                                    {thought.lines.join("\n\n")}
+                                  </ReactMarkdown>
+                                </div>
+                              </details>
+                            );
+                          })}
 
-                  {/* 工具调用 */}
-                  {msg.blocks
-                    .filter((b) => b.type === "tool_call")
-                    .map((b, bi) => {
-                      const tc = b as Extract<MsgBlock, { type: "tool_call" }>;
-                      return (
-                        <ToolCallBlock
-                          key={bi}
-                          tool={tc.tool}
-                          args={tc.args}
-                          result={tc.result}
-                          success={tc.success}
-                        />
-                      );
-                    })}
+                        {/* 工具调用 */}
+                        {phase.blocks
+                          .filter((b) => b.type === "tool_call")
+                          .map((b, bi) => {
+                            const tc = b as Extract<MsgBlock, { type: "tool_call" }>;
+                            return <ToolCallBlock key={bi} tool={tc.tool} args={tc.args} result={tc.result} success={tc.success} />;
+                          })}
 
-                  {/* Todo 列表（事件驱动状态，标准 #9） */}
-                  {msg.blocks
-                    .filter((b) => b.type === "todo")
-                    .map((b, bi) => {
-                      const todo = b as Extract<MsgBlock, { type: "todo" }>;
-                      return (
-                        <div key={bi} className={styles.todoList}>
-                          {todo.tasks.map((task) => (
-                            <div
-                              key={task.id}
-                              className={`${styles.todoItem} ${
-                                task.status === "done" ? styles.todoItemDone :
-                                task.status === "pending" ? styles.todoItemPending : ""
-                              }`}
-                            >
-                              <span className={styles.todoCheck}>
-                                {task.status === "done"
-                                  ? <CheckCircleOutlined style={{ color: "#52c41a" }} />
-                                  : task.status === "running"
-                                  ? <LoadingOutlined spin style={{ color: "#1890ff" }} />
-                                  : <MinusOutlined style={{ color: "#555" }} />}
-                              </span>
-                              <span className={`${styles.todoGoal} ${task.status === "done" ? styles.todoGoalDone : ""}`}>
-                                {task.goal}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      );
-                    })}
+                        {/* Todo */}
+                        {phase.blocks
+                          .filter((b) => b.type === "todo")
+                          .map((b, bi) => {
+                            const todo = b as Extract<MsgBlock, { type: "todo" }>;
+                            return (
+                              <div key={bi} className={styles.todoList}>
+                                {todo.tasks.map((task) => (
+                                  <div key={task.id} className={`${styles.todoItem} ${task.status === "done" ? styles.todoItemDone : task.status === "pending" ? styles.todoItemPending : ""}`}>
+                                    <span className={styles.todoCheck}>
+                                      {task.status === "done" ? <CheckCircleOutlined style={{ color: "#52c41a" }} /> : task.status === "running" ? <LoadingOutlined spin style={{ color: "#1890ff" }} /> : <MinusOutlined style={{ color: "#555" }} />}
+                                    </span>
+                                    <span className={`${styles.todoGoal} ${task.status === "done" ? styles.todoGoalDone : ""}`}>{task.goal}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })}
 
-                  {/* 文本内容 / 总结 */}
-                  {msg.blocks
-                    .filter((b) => b.type === "text" || b.type === "summary")
-                    .map((b, bi) => {
-                      const text = b as Extract<
-                        MsgBlock,
-                        { type: "text" | "summary" }
-                      >;
-                      const isLastText =
-                        bi ===
-                        msg.blocks.filter(
-                          (b) => b.type === "text" || b.type === "summary"
-                        ).length -
-                          1;
-                      return (
-                        <Bubble
-                          key={bi}
-                          placement="start"
-                          content={text.content}
-                          className={styles.assistantBubble}
-                          typing={
-                            msg.streaming && isLastText ? true : undefined
-                          }
-                          contentRender={(content: string) => (
-                            <ReactMarkdown
-                              remarkPlugins={[remarkGfm]}
-                              components={xMarkdownComponents}
-                            >
-                              {content}
-                            </ReactMarkdown>
-                          )}
-                        />
-                      );
-                    })}
+                        {/* 文本 / 总结 */}
+                        {phase.blocks
+                          .filter((b) => b.type === "text" || b.type === "summary")
+                          .map((b, bi) => {
+                            const text = b as Extract<MsgBlock, { type: "text" | "summary" }>;
+                            const isLast = bi === phase.blocks.filter(b2 => b2.type === "text" || b2.type === "summary").length - 1;
+                            return (
+                              <Bubble
+                                key={bi}
+                                placement="start"
+                                content={text.content}
+                                className={styles.assistantBubble}
+                                typing={msg.streaming && isLast ? true : undefined}
+                                contentRender={(content: string) => (
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={xMarkdownComponents}>
+                                    {content}
+                                  </ReactMarkdown>
+                                )}
+                              />
+                            );
+                          })}
+                      </div>
+                    </div>
+                  ))}
 
                   {/* 空状态 loading */}
-                  {msg.streaming && msg.blocks.length === 0 && (
-                    <Bubble
-                      placement="start"
-                      loading
-                      content=""
-                      className={styles.assistantBubble}
-                    />
+                  {msg.streaming && msg.phases.length === 0 && (
+                    <Bubble placement="start" loading content="" className={styles.assistantBubble} />
                   )}
                 </div>
               )}
