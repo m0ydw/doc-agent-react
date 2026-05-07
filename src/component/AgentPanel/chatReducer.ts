@@ -126,30 +126,29 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case "TOOL_START": {
-      // 工具操作仅发生在 execute 阶段，按名称定位而非依赖 activePhaseName
-      // （PHASE_END 可能先于工具事件到达，activePhaseName 已被清空）
-      const toolPhase = state.phases.find((p) => p.phase === "execute");
-      if (!toolPhase) return state;
-      const newPhases = state.phases.map((p) => {
-        if (p.phase !== "execute") return p;
-        return {
-          ...p,
-          blocks: [...p.blocks, { type: "tool_call" as const, tool: action.tool, args: action.args, result: "" }],
-        };
-      });
-      return { ...state, phases: newPhases, currentThought: null };
+      // Lazy upsert：工具操作仅发生在 execute 阶段；
+      // 若阶段尚未创建（事件乱序到达），自动创建。
+      const execIdx = state.phases.findIndex((p) => p.phase === "execute");
+      const newBlock = { type: "tool_call" as const, tool: action.tool, args: action.args, result: "" };
+      const newPhases =
+        execIdx >= 0
+          ? state.phases.map((p, i) =>
+              i === execIdx ? { ...p, blocks: [...p.blocks, newBlock] } : p
+            )
+          : [...state.phases, { phase: "execute", label: "文档处理", status: "running" as const, blocks: [newBlock] }];
+      return { ...state, phases: newPhases, activePhaseName: execIdx < 0 ? "execute" : state.activePhaseName };
     }
 
     case "TOOL_RESULT": {
-      const toolPhase = state.phases.find((p) => p.phase === "execute");
-      if (!toolPhase) return state;
-      const newPhases = state.phases.map((p) => {
-        if (p.phase !== "execute") return p;
+      const execIdx = state.phases.findIndex((p) => p.phase === "execute");
+      if (execIdx < 0) return state;
+      const newPhases = state.phases.map((p, i) => {
+        if (i !== execIdx) return p;
         const newBlocks = [...p.blocks];
-        for (let i = newBlocks.length - 1; i >= 0; i--) {
-          const block = newBlocks[i]; // const 触发 TypeScript 类型窄化
+        for (let j = newBlocks.length - 1; j >= 0; j--) {
+          const block = newBlocks[j];
           if (block.type === "tool_call" && block.result === "") {
-            newBlocks[i] = { ...block, result: action.content, success: action.success } as MsgBlock;
+            newBlocks[j] = { ...block, result: action.content, success: action.success } as MsgBlock;
             break;
           }
         }
@@ -192,10 +191,10 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case "TODO_DONE": {
-      const targetName = activeName || state.phases[state.phases.length - 1]?.phase;
-      if (!targetName) return state;
+      // 跨所有阶段搜索 todo block 并更新状态
       const newPhases = state.phases.map((p) => {
-        if (p.phase !== targetName) return p;
+        const hasTodo = p.blocks.some((b) => b.type === "todo");
+        if (!hasTodo) return p;
         const newBlocks = p.blocks.map((b) => {
           if (b.type !== "todo") return b;
           return {

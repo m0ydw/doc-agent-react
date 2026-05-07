@@ -1,10 +1,9 @@
 ﻿/**
- * InlineTool - Claude Code 风格紧凑行内工具指示器
+ * InlineTool — OpenCode 风格行内工具指示器
  *
- * 单行展示（图标 + 工具名 + 参数 + 结果），无卡片框/背景。
+ * 格式：→ 工具名 · 参数 · 结果（单行，入场动画）
  */
 
-import { LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined } from "@ant-design/icons";
 import styles from "./AgentPanel.module.css";
 
 interface Props {
@@ -18,28 +17,27 @@ export default function InlineTool({ tool, args, result, success }: Props) {
   const done = !!result;
   const isError = done && success === false;
 
+  // 截断过长结果
+  const short = result.length > 80 ? result.slice(0, 80) + "..." : result;
+
   return (
-    <div className={[styles.inlineTool, done ? styles.inlineToolDone : styles.inlineToolRunning].join(" ")}>
+    <div
+      className={[
+        styles.toolLine,
+        done ? styles.toolLineDone : styles.toolLineRunning,
+        isError ? styles.toolLineError : "",
+      ].join(" ")}
+    >
       {!done ? (
-        <LoadingOutlined spin style={{ color: "#1890ff", fontSize: 12, marginRight: 4 }} />
+        <span className={styles.toolArrow}>→</span>
       ) : isError ? (
-        <CloseCircleOutlined style={{ color: "#ff4d4f", fontSize: 12, marginRight: 4 }} />
+        <span className={styles.toolArrowErr}>✗</span>
       ) : (
-        <CheckCircleOutlined style={{ color: "#52c41a", fontSize: 12, marginRight: 4 }} />
+        <span className={styles.toolArrowOk}>✓</span>
       )}
-      <span className={styles.inlineToolLabel}>{tool}</span>
-      {args && <span className={styles.inlineToolArgs}>{args}</span>}
-      {done && (
-        <span className={styles.inlineToolResult}>
-          {" "}
-          ·{" "}
-          {success === false ? (
-            <span style={{ color: "#ff4d4f" }}>{result}</span>
-          ) : (
-            result.length > 60 ? result.slice(0, 60) + "..." : result
-          )}
-        </span>
-      )}
+      <span className={styles.toolLabel}>{tool}</span>
+      {args && <span className={styles.toolArg}> · {args}</span>}
+      {done && <span className={isError ? styles.toolResultErr : styles.toolResult}> · {short}</span>}
     </div>
   );
 }

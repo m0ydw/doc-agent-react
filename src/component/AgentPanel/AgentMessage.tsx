@@ -1,12 +1,15 @@
 ﻿/**
- * AgentMessage - Claude Code 风格线性渲染
+ * AgentMessage — OpenCode 风格线性消息渲染
  *
- * 将所有阶段的 blocks 按时间顺序扁平化，思考与工具交替展示，无卡片框。
+ * 扁平化所有阶段的 blocks，按时间顺序 switch 渲染：
+ *   thought  = 半透明小字，前缀 "思考内容"
+ *   tool_call = → 前缀 + 入场动画
+ *   text/summary = 不透明正文（无 Bubble 包裹）
+ *   todo   = sticky 紧凑标签条
  */
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Bubble } from "@ant-design/x";
 import type { MsgBlock, AssistantMsg } from "./chatTypes";
 import InlineTool from "./InlineTool";
 import xMarkdownComponents from "./xMarkdown";
@@ -14,98 +17,78 @@ import styles from "./AgentPanel.module.css";
 
 interface Props {
   msg: AssistantMsg;
-  /** 是否是最后一条消息（控制 streaming typing 动画） */
   isLatest: boolean;
 }
 
 export default function AgentMessage({ msg, isLatest }: Props) {
-  // 扁平化：所有阶段的所有 blocks 按出现顺序
-  const allBlocks: { block: MsgBlock; phaseKey: string; blockIdx: number }[] = [];
-  for (const phase of msg.phases) {
-    for (let i = 0; i < phase.blocks.length; i++) {
-      allBlocks.push({ block: phase.blocks[i], phaseKey: phase.phase + "-" + i, blockIdx: i });
-    }
-  }
-
-  const textBlocks = allBlocks.filter(
-    (b) => b.block.type === "text" || b.block.type === "summary"
-  );
-  let textBlockIndex = 0;
+  const allBlocks = msg.phases.flatMap((p) => p.blocks);
+  const todoBlocks = allBlocks.filter((b) => b.type === "todo");
 
   return (
     <div className={styles.agentMessage}>
-      {allBlocks.map(({ block, phaseKey }, i) => {
-        switch (block.type) {
-          case "thought": {
-            const thought = block as Extract<MsgBlock, { type: "thought" }>;
+      {/* Todo 条 — streaming 时 sticky 置顶，完成后取消 sticky */}
+      {todoBlocks.length > 0 && (
+        <div className={msg.streaming ? styles.todoSticky : styles.todoStrip}>
+          {todoBlocks.map((b, i) => {
+            const todo = b as Extract<MsgBlock, { type: "todo" }>;
             return (
-              <details key={phaseKey} className={styles.thoughtSection}>
-                <summary className={styles.thoughtSummary}>思考</summary>
-                <div className={styles.thoughtBody}>
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={xMarkdownComponents}>
-                    {thought.lines.join("")}
-                  </ReactMarkdown>
-                </div>
-              </details>
-            );
-          }
-
-          case "tool_call": {
-            const tc = block as Extract<MsgBlock, { type: "tool_call" }>;
-            return (
-              <InlineTool
-                key={phaseKey}
-                tool={tc.tool}
-                args={tc.args}
-                result={tc.result}
-                success={tc.success}
-              />
-            );
-          }
-
-          case "todo": {
-            const todo = block as Extract<MsgBlock, { type: "todo" }>;
-            return (
-              <div key={phaseKey} className={styles.todoStrip}>
-                {todo.tasks.map((task) => (
+              <span key={i} className={styles.todoChips}>
+                {todo.tasks.map((t) => (
                   <span
-                    key={task.id}
+                    key={t.id}
                     className={[
                       styles.todoChip,
-                      task.status === "done" ? styles.todoChipDone : styles.todoChipPending,
+                      t.status === "done" ? styles.todoChipDone : styles.todoChipPending,
                     ].join(" ")}
                   >
-                    {task.status === "done" ? "✓" : "○"} {task.goal}
+                    {t.status === "done" ? "✓" : "○"} {t.goal}
                   </span>
                 ))}
-              </div>
+              </span>
             );
-          }
+          })}
+        </div>
+      )}
 
-          case "text":
-          case "summary": {
-            const text = block as Extract<MsgBlock, { type: "text" | "summary" }>;
-            const isLastText = textBlockIndex === textBlocks.length - 1;
-            textBlockIndex++;
-            return (
-              <Bubble
-                key={phaseKey}
-                placement="start"
-                content={text.content}
-                className={styles.assistantBubble}
-                typing={msg.streaming && isLatest && isLastText ? true : undefined}
-                contentRender={(content: string) => (
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={xMarkdownComponents}>
-                    {content}
-                  </ReactMarkdown>
-                )}
-              />
-            );
-          }
-
-          default:
-            return null;
+      {/* 线性渲染所有 block — 无 Bubble，纯 Markdown 正文 */}
+      {allBlocks.map((block, i) => {
+        if (block.type === "thought") {
+          const thought = block as Extract<MsgBlock, { type: "thought" }>;
+          return (
+            <div key={i} className={styles.thoughtLine}>
+              <span className={styles.thoughtPrefix}>思考内容</span>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={xMarkdownComponents}>
+                {thought.lines.join("")}
+              </ReactMarkdown>
+            </div>
+          );
         }
+
+        if (block.type === "tool_call") {
+          const tc = block as Extract<MsgBlock, { type: "tool_call" }>;
+          return (
+            <InlineTool
+              key={i}
+              tool={tc.tool}
+              args={tc.args}
+              result={tc.result}
+              success={tc.success}
+            />
+          );
+        }
+
+        if (block.type === "text" || block.type === "summary") {
+          const text = block as Extract<MsgBlock, { type: "text" | "summary" }>;
+          return (
+            <div key={i} className={styles.textBlock}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={xMarkdownComponents}>
+                {text.content}
+              </ReactMarkdown>
+            </div>
+          );
+        }
+
+        return null;
       })}
     </div>
   );
