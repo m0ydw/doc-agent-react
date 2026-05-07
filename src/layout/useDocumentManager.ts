@@ -9,7 +9,6 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { message } from "antd";
 import { useDropzone } from "react-dropzone";
 import {
-  cleanupDocuments,
   getDocumentList,
   getDocumentSeed,
   openDocumentSession,
@@ -25,7 +24,6 @@ interface TabData {
 
 export function useDocumentManager() {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const uploadedFileIdsRef = useRef<Set<string>>(new Set());
   const autoInitRef = useRef(false);
 
   // ---- Tab 状态 ----
@@ -90,7 +88,8 @@ export function useDocumentManager() {
         if (!uploadRes.success || !uploadRes.files?.[0])
           throw new Error("上传接口返回异常");
         const uploaded = uploadRes.files[0];
-        uploadedFileIdsRef.current.add(uploaded.id);
+        // 同步标记：ref 赋值先于 refreshFileList 的 Effect，阻止 autoOpenAll 竞态
+        autoInitRef.current = true;
         await refreshFileList();
         hide();
         message.success(`上传成功: ${uploaded.originalName}`);
@@ -177,6 +176,7 @@ export function useDocumentManager() {
   useEffect(() => {
     if (autoInitRef.current || fileList.length === 0) return;
     autoInitRef.current = true;
+    // 仅在上传前触发：上传流程已通过 ref 抢先标记，阻止此处执行
 
     const autoOpenAll = async () => {
       const results = await Promise.all(
@@ -200,20 +200,7 @@ export function useDocumentManager() {
     void autoOpenAll();
   }, [fileList]);
 
-  // ---- 卸载清理 ----
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      const keepIds = Array.from(uploadedFileIdsRef.current);
-      if (keepIds.length > 0) {
-        navigator.sendBeacon?.(
-          `${config.docsApiUrl}/cleanup`,
-          JSON.stringify({ keepIds })
-        );
-      }
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, []);
+  // ---- 清理：种子文件已由 /seed 路由在发送完成后自动删除，无需前端清理 ----
 
   return {
     tabs,

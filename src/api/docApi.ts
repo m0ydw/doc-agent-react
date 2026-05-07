@@ -60,11 +60,7 @@ export const getDocumentList = async (): Promise<ListResponse> => {
   return response.data;
 };
 
-export const getDocumentUrl = (id: string): string => {
-  return `${API_BASE_URL}/${id}`;
-};
-
-// 获取文件原始内容（供播种用）
+/** 获取文件原始内容（供前端播种 SuperDocEditor） */
 export const getDocumentSeed = async (id: string): Promise<Blob> => {
   const response = await fetch(`${API_BASE_URL}/${id}/seed`);
   if (!response.ok) {
@@ -151,9 +147,14 @@ export const getDocumentText = async (
   return response.data;
 };
 
-export const saveDocument = async (
-  docId: string
-): Promise<{ success: boolean; message: string }> => {
-  const response = await axios.post(`${DOC_OPS_BASE_URL}/save/${docId}`);
-  return response.data;
+/** 从 Y.Doc 导出文档（替代磁盘下载） */
+export const exportDocument = async (docId: string, exportFn: () => Promise<Blob | null>): Promise<void> => {
+  const blob = await exportFn();
+  if (!blob) throw new Error("导出失败");
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${docId}.docx`;
+  a.click();
+  URL.revokeObjectURL(url);
 };

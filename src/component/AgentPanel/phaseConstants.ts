@@ -7,7 +7,6 @@ import type { ConfigProvider } from "antd";
 
 /** 阶段名称 → 中文标签 */
 export const PHASE_LABELS: Record<string, string> = {
-  docTarget: "文档定位",
   analyze: "需求分析",
   plan: "任务规划",
   execute: "文档处理",

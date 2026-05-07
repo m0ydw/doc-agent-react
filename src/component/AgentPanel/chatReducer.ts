@@ -180,11 +180,20 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case "TODO_LIST": {
-      const targetName = activeName || state.phases[state.phases.length - 1]?.phase;
-      if (!targetName) return state;
+      // 合并到 plan 阶段的已有 todo block，而非新建
+      const targetPhase = state.phases.find((p) => p.phase === "plan");
+      if (!targetPhase) return state;
       const tasks = action.tasks.map((t) => ({ id: t.id, goal: t.goal, status: "pending" as const }));
       const newPhases = state.phases.map((p) => {
-        if (p.phase !== targetName) return p;
+        if (p.phase !== "plan") return p;
+        const existingIdx = p.blocks.findIndex((b) => b.type === "todo");
+        if (existingIdx >= 0) {
+          const existing = p.blocks[existingIdx] as Extract<MsgBlock, { type: "todo" }>;
+          const merged = [...existing.tasks, ...tasks.filter((t) => !existing.tasks.some((e) => e.id === t.id))];
+          const newBlocks = [...p.blocks];
+          newBlocks[existingIdx] = { type: "todo" as const, tasks: merged };
+          return { ...p, blocks: newBlocks };
+        }
         return { ...p, blocks: [...p.blocks, { type: "todo" as const, tasks }] };
       });
       return { ...state, phases: newPhases, currentThought: null };

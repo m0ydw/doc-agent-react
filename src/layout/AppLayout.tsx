@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import {
   ConfigProvider,
   theme,
@@ -7,6 +7,7 @@ import {
   Typography,
   Flex,
 } from "antd";
+import { DownloadOutlined } from "@ant-design/icons";
 
 import { DocumentViewer } from "@/component";
 import TabBar from "@/component/TabBar/TabBar";
@@ -45,6 +46,24 @@ export default function AppLayout() {
   const [agentCollapsed, setAgentCollapsed] = useState(false);
   const [agentWidth, setAgentWidth] = useState(360);
   const [showFindReplace, setShowFindReplace] = useState(false);
+  // Y.Doc 导出函数（从 SuperDocEditor 注册）
+  const exportFnRef = useRef<(() => Promise<Blob | null>) | null>(null);
+
+  const handleDownload = useCallback(async () => {
+    if (!exportFnRef.current) return;
+    try {
+      const blob = await exportFnRef.current();
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `文档_${new Date().toISOString().slice(0, 10)}.docx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const handleResize = useCallback((deltaX: number) => {
     setAgentWidth((prev) => {
@@ -102,21 +121,31 @@ export default function AppLayout() {
                         docId={tab.doc.roomName || tab.doc.id}
                         collaborationWsUrl={tab.doc.collaboration?.wsUrl}
                         docKey={tab.doc.id}
+                        onRegisterExporter={(fn) => { exportFnRef.current = fn; }}
                       />
                     </div>
                   ))
                 )}
               </div>
 
-              <Button
-                type="text"
-                size="small"
-                block
-                onClick={() => setShowFindReplace(!showFindReplace)}
-                style={{ background: "#f5f5f5", borderTop: "1px solid #ddd", borderRadius: 0, height: 32 }}
-              >
-                {showFindReplace ? "▼" : "▲"} 查找替换
-              </Button>
+              <Flex style={{ borderTop: "1px solid #ddd", background: "#f5f5f5" }}>
+                <Button
+                  type="text"
+                  size="small"
+                  onClick={() => setShowFindReplace(!showFindReplace)}
+                  style={{ borderRadius: 0, height: 32, flex: 1 }}
+                >
+                  {showFindReplace ? "▼" : "▲"} 查找替换
+                </Button>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<DownloadOutlined />}
+                  onClick={handleDownload}
+                  style={{ borderRadius: 0, height: 32, borderLeft: "1px solid #ddd" }}
+                  title="下载当前文档（从 Yjs 导出）"
+                />
+              </Flex>
 
               {showFindReplace && (
                 <div className={styles.findReplacePanel}>

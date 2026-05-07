@@ -22,31 +22,29 @@ interface Props {
 
 export default function AgentMessage({ msg, isLatest }: Props) {
   const allBlocks = msg.phases.flatMap((p) => p.blocks);
-  const todoBlocks = allBlocks.filter((b) => b.type === "todo");
+  // 所有 todo block 的 tasks 聚合为一个扁平数组（统一 strip 渲染）
+  const allTodoTasks = allBlocks
+    .filter((b) => b.type === "todo")
+    .flatMap((b) => (b as Extract<MsgBlock, { type: "todo" }>).tasks);
 
   return (
     <div className={styles.agentMessage}>
-      {/* Todo 条 — streaming 时 sticky 置顶，完成后取消 sticky */}
-      {todoBlocks.length > 0 && (
+      {/* Todo 条 — 所有任务统一渲染在一个 strip 中 */}
+      {allTodoTasks.length > 0 && (
         <div className={msg.streaming ? styles.todoSticky : styles.todoStrip}>
-          {todoBlocks.map((b, i) => {
-            const todo = b as Extract<MsgBlock, { type: "todo" }>;
-            return (
-              <span key={i} className={styles.todoChips}>
-                {todo.tasks.map((t) => (
-                  <span
-                    key={t.id}
-                    className={[
-                      styles.todoChip,
-                      t.status === "done" ? styles.todoChipDone : styles.todoChipPending,
-                    ].join(" ")}
-                  >
-                    {t.status === "done" ? "✓" : "○"} {t.goal}
-                  </span>
-                ))}
+          <span className={styles.todoChips}>
+            {allTodoTasks.map((t) => (
+              <span
+                key={t.id}
+                className={[
+                  styles.todoChip,
+                  t.status === "done" ? styles.todoChipDone : styles.todoChipPending,
+                ].join(" ")}
+              >
+                {t.status === "done" ? "✓" : "○"} {t.goal}
               </span>
-            );
-          })}
+            ))}
+          </span>
         </div>
       )}
 
