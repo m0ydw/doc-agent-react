@@ -1,12 +1,10 @@
 /**
  * Agent 对话面板 — 阶段卡片渲染（LangGraph Studio 风格）
  *
- * 每个阶段（analyze/plan/execute/generate/validate）渲染为独立卡片，
- * 卡片内包含该阶段的思考、工具调用、内容输出。
- * 事件驱动：phase_start 创建卡片，phase_end 完成卡片。
+ * 使用 useReducer 进行不可变状态管理，替换旧的 useRef mutate + commitRender 模式。
  */
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useReducer, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button, Tooltip, Flex, ConfigProvider, theme, Tag } from "antd";
@@ -33,11 +31,19 @@ import styles from "./AgentPanel.module.css";
 type MsgBlock =
   | { type: "text"; content: string }
   | { type: "thought"; lines: string[] }
-  | { type: "tool_call"; tool: string; args: string; result: string; success?: boolean }
+  | {
+      type: "tool_call";
+      tool: string;
+      args: string;
+      result: string;
+      success?: boolean;
+    }
   | { type: "summary"; content: string }
-  | { type: "todo"; tasks: Array<{ id: string; goal: string; status: string }> };
+  | {
+      type: "todo";
+      tasks: Array<{ id: string; goal: string; status: string }>;
+    };
 
-/** 阶段卡片 */
 interface PhaseCard {
   phase: string;
   label: string;
@@ -53,10 +59,360 @@ interface AssistantMsg {
 
 type Message = { role: "user"; content: string } | AssistantMsg;
 
-interface BuildState {
+// ================================================================
+// Reducer 状态 & Action
+// ================================================================
+
+interface ChatState {
+  messages: Message[];
   phases: PhaseCard[];
   activePhase: PhaseCard | null;
   currentThought: string[] | null;
+}
+
+type ChatAction =
+  | { type: "USER_MSG"; content: string }
+  | { type: "PHASE_START"; phase: string; label: string }
+  | { type: "PHASE_END" }
+  | { type: "THOUGHT"; content: string }
+  | { type: "CONTENT"; content: string }
+  | { type: "CHAT_CONTENT"; content: string }
+  | { type: "TOOL_START"; tool: string; args: string }
+  | { type: "TOOL_RESULT"; content: string; success: boolean }
+  | { type: "DOC_TARGET"; fileName: string }
+  | {
+      type: "SUMMARY";
+      summaryText: string;
+      detail: string;
+      failedTasks: string[];
+    }
+  | { type: "TODO_LIST"; tasks: Array<{ id: string; goal: string }> }
+  | { type: "TODO_DONE"; id: string }
+  | { type: "ERROR"; message: string };
+
+function chatReducer(state: ChatState, action: ChatAction): ChatState {
+  switch (action.type) {
+    case "USER_MSG": {
+      return {
+        messages: [
+          ...state.messages,
+          { role: "user", content: action.content },
+          { role: "assistant", phases: [], streaming: true },
+        ],
+        phases: [],
+        activePhase: null,
+        currentThought: null,
+      };
+    }
+
+    case "PHASE_START": {
+      const card: PhaseCard = {
+        phase: action.phase,
+        label: action.label,
+        status: "running",
+        blocks: [],
+      };
+      return {
+        ...state,
+        phases: [...state.phases, card],
+        activePhase: card,
+        currentThought: null,
+      };
+    }
+
+    case "PHASE_END": {
+      const newPhases = state.phases.map((p) =>
+        p === state.activePhase ? { ...p, status: "done" as const } : p
+      );
+      return {
+        ...state,
+        phases: newPhases,
+        activePhase: null,
+        currentThought: null,
+      };
+    }
+
+    case "THOUGHT": {
+      const ap = state.activePhase;
+      if (!ap) return state;
+
+      const newPhases = state.phases.map((p) => {
+        if (p !== ap) return p;
+        const hasThought = p.blocks.some((b) => b.type === "thought");
+        if (hasThought) {
+          // 追加到最后一个 thought block
+          return {
+            ...p,
+            blocks: p.blocks.map((b) => {
+              if (b.type === "thought")
+                return {
+                  ...b,
+                  lines: [...(b as { lines: string[] }).lines, action.content],
+                };
+              return b;
+            }),
+          };
+        }
+        // 创建新 thought block
+        return {
+          ...p,
+          blocks: [
+            ...p.blocks,
+            { type: "thought" as const, lines: [action.content] },
+          ],
+        };
+      });
+
+      return { ...state, phases: newPhases, currentThought: null };
+    }
+
+    case "CONTENT": {
+      const targetPhase =
+        state.activePhase || state.phases[state.phases.length - 1];
+      if (!targetPhase) return state;
+
+      const newPhases = state.phases.map((p) => {
+        if (p !== targetPhase) return p;
+        const lastBlock = p.blocks[p.blocks.length - 1];
+        if (lastBlock?.type === "text") {
+          return {
+            ...p,
+            blocks: p.blocks.map((b, i) =>
+              i === p.blocks.length - 1
+                ? {
+                    ...b,
+                    content:
+                      (b as { content: string }).content + action.content,
+                  }
+                : b
+            ),
+          };
+        }
+        return {
+          ...p,
+          blocks: [
+            ...p.blocks,
+            { type: "text" as const, content: action.content },
+          ],
+        };
+      });
+
+      return { ...state, phases: newPhases, currentThought: null };
+    }
+
+    case "CHAT_CONTENT": {
+      if (state.phases.length === 0) return state;
+      const lastPhase = state.phases[state.phases.length - 1];
+      const lastBlock = lastPhase.blocks[lastPhase.blocks.length - 1];
+
+      const newPhases = state.phases.map((p, i) => {
+        if (i !== state.phases.length - 1) return p;
+        if (lastBlock?.type === "text") {
+          return {
+            ...p,
+            blocks: p.blocks.map((b, j) =>
+              j === p.blocks.length - 1
+                ? {
+                    ...b,
+                    content:
+                      (b as { content: string }).content + action.content,
+                  }
+                : b
+            ),
+          };
+        }
+        return {
+          ...p,
+          blocks: [
+            ...p.blocks,
+            { type: "text" as const, content: action.content },
+          ],
+        };
+      });
+
+      return { ...state, phases: newPhases, currentThought: null };
+    }
+
+    case "TOOL_START": {
+      const targetPhase =
+        state.activePhase || state.phases[state.phases.length - 1];
+      if (!targetPhase) return state;
+
+      const newPhases = state.phases.map((p) => {
+        if (p !== targetPhase) return p;
+        return {
+          ...p,
+          blocks: [
+            ...p.blocks,
+            {
+              type: "tool_call" as const,
+              tool: action.tool,
+              args: action.args,
+              result: "",
+            },
+          ],
+        };
+      });
+
+      return { ...state, phases: newPhases, currentThought: null };
+    }
+
+    case "TOOL_RESULT": {
+      const targetPhase =
+        state.activePhase || state.phases[state.phases.length - 1];
+      if (!targetPhase) return state;
+
+      const newPhases = state.phases.map((p) => {
+        if (p !== targetPhase) return p;
+        // 从后往前找最后一个空 result 的 tool_call
+        const newBlocks = [...p.blocks];
+        for (let i = newBlocks.length - 1; i >= 0; i--) {
+          if (
+            newBlocks[i].type === "tool_call" &&
+            (newBlocks[i] as { result: string }).result === ""
+          ) {
+            newBlocks[i] = {
+              ...newBlocks[i],
+              result: action.content,
+              success: action.success,
+            };
+            break;
+          }
+        }
+        return { ...p, blocks: newBlocks };
+      });
+
+      return { ...state, phases: newPhases };
+    }
+
+    case "DOC_TARGET": {
+      if (state.phases.length === 0) return state;
+      const newPhases = state.phases.map((p, i) => {
+        if (i !== 0) return p;
+        return {
+          ...p,
+          blocks: [
+            ...p.blocks,
+            { type: "text" as const, content: `目标文档：${action.fileName}` },
+          ],
+        };
+      });
+      return { ...state, phases: newPhases, currentThought: null };
+    }
+
+    case "SUMMARY": {
+      const detail = action.detail ? `\n\n${action.detail}` : "";
+      const failed =
+        action.failedTasks.length > 0
+          ? `\n\n失败：${action.failedTasks.join("、")}`
+          : "";
+
+      const newPhases = state.phases.map((p, i) => {
+        if (i !== state.phases.length - 1) return p;
+        return {
+          ...p,
+          blocks: [
+            ...p.blocks,
+            {
+              type: "summary" as const,
+              content: `${action.summaryText}${detail}${failed}`,
+            },
+          ],
+        };
+      });
+
+      return {
+        ...state,
+        phases: newPhases,
+        activePhase: null,
+        currentThought: null,
+      };
+    }
+
+    case "TODO_LIST": {
+      const targetPhase =
+        state.activePhase || state.phases[state.phases.length - 1];
+      if (!targetPhase) return state;
+
+      const tasks = action.tasks.map((t) => ({
+        id: t.id,
+        goal: t.goal,
+        status: "pending" as const,
+      }));
+
+      const newPhases = state.phases.map((p) => {
+        if (p !== targetPhase) return p;
+        return {
+          ...p,
+          blocks: [...p.blocks, { type: "todo" as const, tasks }],
+        };
+      });
+
+      return { ...state, phases: newPhases, currentThought: null };
+    }
+
+    case "TODO_DONE": {
+      const targetPhase =
+        state.activePhase || state.phases[state.phases.length - 1];
+      if (!targetPhase) return state;
+
+      const newPhases = state.phases.map((p) => {
+        if (p !== targetPhase) return p;
+        const newBlocks = p.blocks.map((b) => {
+          if (b.type !== "todo") return b;
+          return {
+            ...b,
+            tasks: (
+              b as {
+                tasks: Array<{ id: string; goal: string; status: string }>;
+              }
+            ).tasks.map((t) =>
+              t.id === action.id ? { ...t, status: "done" as const } : t
+            ),
+          };
+        });
+        return { ...p, blocks: newBlocks };
+      });
+
+      return { ...state, phases: newPhases };
+    }
+
+    case "ERROR": {
+      const newPhases = state.phases.map((p, i) => {
+        if (i !== state.phases.length - 1) return p;
+        return {
+          ...p,
+          blocks: [
+            ...p.blocks,
+            { type: "text" as const, content: `错误：${action.message}` },
+          ],
+        };
+      });
+
+      return {
+        ...state,
+        phases: newPhases,
+        activePhase: null,
+        currentThought: null,
+      };
+    }
+
+    default:
+      return state;
+  }
+}
+
+// 同步 messages 中的 phases（从 state 到 messages 的"派生"同步）
+function syncMessages(state: ChatState): Message[] {
+  const updated = [...state.messages];
+  const last = updated[updated.length - 1];
+  if (last && last.role === "assistant") {
+    updated[updated.length - 1] = {
+      ...last,
+      phases: state.phases,
+    };
+  }
+  return updated;
 }
 
 // ================================================================
@@ -122,49 +478,19 @@ export default function AgentPanel({
     memory: number;
     docs: number;
   } | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
 
-  // Refs
-  const stateRef = useRef<BuildState>({
+  // 核心状态 — 使用 useReducer 替代 useRef mutate
+  const [chatState, dispatch] = useReducer(chatReducer, {
+    messages: [],
     phases: [],
     activePhase: null,
     currentThought: null,
   });
+
   const abortRef = useRef<AbortController | { close: () => void } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // 快照提交
-  const commitRender = useCallback(() => {
-    const snapshot = stateRef.current.phases.map((p) => ({
-      ...p,
-      blocks: p.blocks.map((b) => {
-        if (b.type === "thought") return { ...b, lines: [...b.lines] };
-        return { ...b };
-      }),
-    }));
-    setMessages((prev) => {
-      const updated = [...prev];
-      const last = updated[updated.length - 1];
-      if (last && last.role === "assistant") {
-        updated[updated.length - 1] = { ...last, phases: snapshot };
-      }
-      return updated;
-    });
-  }, []);
-
-  useEffect(() => {
-    checkAgentStatus();
-  }, []);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = messagesContainerRef.current;
-    if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    if (nearBottom)
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  const checkAgentStatus = async () => {
+  const checkAgentStatus = useCallback(async () => {
     const status = await getAgentStatus();
     if (status) {
       setAgentReady(status.initialized);
@@ -173,174 +499,96 @@ export default function AgentPanel({
         docs: status.availableDocs,
       });
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void checkAgentStatus();
+  }, [checkAgentStatus]);
+
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (nearBottom)
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatState.messages]);
+
+  // 派生：从 phases 同步到 messages
+  const displayMessages = syncMessages(chatState);
 
   // ================================================================
-  // SSE 事件处理
+  // 事件处理 → dispatch action
   // ================================================================
 
-  const handleEvent = useCallback(
-    (event: AgentEvent) => {
-      const state = stateRef.current;
-
-      switch (event.type) {
-        case "phase_start": {
-          const phase = event.phase;
-          const card: PhaseCard = {
-            phase,
-            label: PHASE_LABELS[phase] || phase,
-            status: "running",
-            blocks: [],
-          };
-          state.phases.push(card);
-          state.activePhase = card;
-          state.currentThought = null;
-          commitRender();
-          break;
-        }
-        case "phase_end": {
-          if (state.activePhase) {
-            state.activePhase.status = "done";
-          }
-          state.activePhase = null;
-          state.currentThought = null;
-          commitRender();
-          break;
-        }
-        case "phase_status": {
-          break;
-        }
-        case "thought": {
-          if (!state.activePhase) break;
-          const ap = state.activePhase;
-          if (!state.currentThought) {
-            state.currentThought = [];
-            ap.blocks.push({ type: "thought", lines: state.currentThought });
-          }
-          state.currentThought.push(event.content);
-          commitRender();
-          break;
-        }
-        case "content": {
-          state.currentThought = null;
-          const ap = state.activePhase;
-          const targetBlocks = ap ? ap.blocks : state.phases[state.phases.length - 1]?.blocks || [];
-          const lastBlock = targetBlocks[targetBlocks.length - 1];
-          if (lastBlock && lastBlock.type === "text") {
-            (lastBlock as Extract<MsgBlock, { type: "text" }>).content += event.content;
-          } else {
-            targetBlocks.push({ type: "text", content: event.content });
-          }
-          commitRender();
-          break;
-        }
-        case "chat_content": {
-          state.currentThought = null;
-          const lastBlock = state.phases[state.phases.length - 1]?.blocks?.slice(-1)[0];
-          if (lastBlock && lastBlock.type === "text") {
-            (lastBlock as Extract<MsgBlock, { type: "text" }>).content += event.content;
-          } else {
-            state.phases[state.phases.length - 1]?.blocks.push({ type: "text", content: event.content });
-          }
-          commitRender();
-          break;
-        }
-        case "tool_start": {
-          state.currentThought = null;
-          const ap = state.activePhase || state.phases[state.phases.length - 1];
-          if (!ap) break;
-          ap.blocks.push({ type: "tool_call", tool: event.tool, args: event.args, result: "" });
-          commitRender();
-          break;
-        }
-        case "tool_call": {
-          state.currentThought = null;
-          const ap = state.activePhase || state.phases[state.phases.length - 1];
-          if (!ap) break;
-          const last = ap.blocks[ap.blocks.length - 1];
-          if (last && last.type === "tool_call" && last.tool === event.tool && last.result === "") break;
-          ap.blocks.push({ type: "tool_call", tool: event.tool, args: event.args, result: "" });
-          commitRender();
-          break;
-        }
-        case "tool_result": {
-          const ap = state.activePhase || state.phases[state.phases.length - 1];
-          if (!ap) break;
-          for (let i = ap.blocks.length - 1; i >= 0; i--) {
-            const b = ap.blocks[i];
-            if (b.type === "tool_call") {
-              const tc = b as Extract<MsgBlock, { type: "tool_call" }>;
-              tc.result = event.content;
-              tc.success = event.success;
-              break;
-            }
-          }
-          commitRender();
-          break;
-        }
-        case "doc_target": {
-          state.currentThought = null;
-          state.phases[0]?.blocks.push({ type: "text", content: `目标文档：${event.fileName}` });
-          commitRender();
-          break;
-        }
-        case "summary": {
-          state.currentThought = null;
-          state.activePhase = null;
-          const detail = event.detail ? `\n\n${event.detail}` : "";
-          const failed = event.failed_tasks.length > 0 ? `\n\n失败：${event.failed_tasks.join("、")}` : "";
-          // summary 放在最后一个阶段的 blocks 中
-          const lastPhase = state.phases[state.phases.length - 1];
-          if (lastPhase) {
-            lastPhase.blocks.push({ type: "summary", content: `${event.summary_text}${detail}${failed}` });
-          }
-          commitRender();
-          setIsLoading(false);
-          break;
-        }
-        case "todo_list": {
-          state.currentThought = null;
-          const tasks = event.tasks.map((t) => ({ id: t.id, goal: t.goal, status: "pending" as const }));
-          const ap = state.activePhase || state.phases[state.phases.length - 1];
-          if (ap) ap.blocks.push({ type: "todo", tasks });
-          commitRender();
-          break;
-        }
-        case "todo_done": {
-          const ap = state.activePhase || state.phases[state.phases.length - 1];
-          if (!ap) break;
-          for (let i = ap.blocks.length - 1; i >= 0; i--) {
-            const b = ap.blocks[i];
-            if (b.type === "todo") {
-              const task = (b as Extract<MsgBlock, { type: "todo" }>).tasks.find((t) => t.id === event.id);
-              if (task) task.status = "done";
-              break;
-            }
-          }
-          commitRender();
-          break;
-        }
-        case "error": {
-          state.currentThought = null;
-          state.activePhase = null;
-          const lastPhase = state.phases[state.phases.length - 1];
-          if (lastPhase) {
-            lastPhase.blocks.push({ type: "text", content: `错误：${event.message}` });
-          }
-          commitRender();
-          setIsLoading(false);
-          break;
-        }
-      }
-    },
-    [commitRender]
-  );
+  const handleEvent = useCallback((event: AgentEvent) => {
+    switch (event.type) {
+      case "phase_start":
+        dispatch({
+          type: "PHASE_START",
+          phase: event.phase,
+          label: PHASE_LABELS[event.phase] || event.phase,
+        });
+        break;
+      case "phase_end":
+        dispatch({ type: "PHASE_END" });
+        break;
+      case "phase_status":
+        break;
+      case "thought":
+        dispatch({ type: "THOUGHT", content: event.content });
+        break;
+      case "content":
+        dispatch({ type: "CONTENT", content: event.content });
+        break;
+      case "chat_content":
+        dispatch({ type: "CHAT_CONTENT", content: event.content });
+        break;
+      case "tool_start":
+        dispatch({ type: "TOOL_START", tool: event.tool, args: event.args });
+        break;
+      case "tool_call":
+        dispatch({ type: "TOOL_START", tool: event.tool, args: event.args });
+        break;
+      case "tool_result":
+        dispatch({
+          type: "TOOL_RESULT",
+          content: event.content,
+          success: event.success,
+        });
+        break;
+      case "doc_target":
+        dispatch({ type: "DOC_TARGET", fileName: event.fileName });
+        break;
+      case "summary":
+        dispatch({
+          type: "SUMMARY",
+          summaryText: event.summary_text,
+          detail: event.detail,
+          failedTasks: event.failed_tasks,
+        });
+        setIsLoading(false);
+        break;
+      case "todo_list":
+        dispatch({ type: "TODO_LIST", tasks: event.tasks });
+        break;
+      case "todo_done":
+        dispatch({ type: "TODO_DONE", id: event.id });
+        break;
+      case "error":
+        dispatch({ type: "ERROR", message: event.message });
+        setIsLoading(false);
+        break;
+      case "phase_content":
+      case "warning":
+        break;
+    }
+  }, []);
 
   const handleDone = useCallback(() => {
     setIsLoading(false);
-    commitRender();
-    checkAgentStatus();
-  }, [commitRender]);
+    void checkAgentStatus();
+  }, [checkAgentStatus]);
   const handleError = useCallback(() => setIsLoading(false), []);
 
   // ================================================================
@@ -353,16 +601,8 @@ export default function AgentPanel({
       if (!msg || isLoading) return;
       setInputText("");
       setIsLoading(true);
-      stateRef.current = {
-        phases: [],
-        activePhase: null,
-        currentThought: null,
-      };
-      setMessages((prev) => [...prev, { role: "user", content: msg }]);
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant" as const, phases: [], streaming: true },
-      ]);
+      dispatch({ type: "USER_MSG", content: msg });
+
       abortRef.current = sendAgentMessage(
         msg,
         activeDocId ?? undefined,
@@ -387,14 +627,17 @@ export default function AgentPanel({
 
   const handleCancel = useCallback(() => {
     if (abortRef.current) {
-      "abort" in abortRef.current ? abortRef.current.abort() : abortRef.current.close();
+      "abort" in abortRef.current
+        ? abortRef.current.abort()
+        : abortRef.current.close();
     }
     setIsLoading(false);
   }, []);
+
   const handleReset = useCallback(async () => {
     await resetAgent();
-    setMessages([]);
-    checkAgentStatus();
+    // 重置聊天状态
+    window.location.reload();
   }, []);
 
   // ================================================================
@@ -481,7 +724,7 @@ export default function AgentPanel({
 
         {/* Messages */}
         <div className={styles.messages} ref={messagesContainerRef}>
-          {messages.length === 0 && (
+          {displayMessages.length === 0 && (
             <div className={styles.emptyState}>
               <div style={{ color: "#666", fontSize: 13 }}>
                 向 AI Agent 描述你的文档操作需求
@@ -494,14 +737,23 @@ export default function AgentPanel({
             </div>
           )}
 
-          {messages.map((msg, i) => (
+          {displayMessages.map((msg, i) => (
             <div key={i}>
               {msg.role === "user" ? (
                 <Bubble
                   placement="end"
                   content={msg.content}
                   className={styles.userBubble}
-                  avatar={<div style={{ background: "#1677ff", width: 32, height: 32, borderRadius: "50%" }} />}
+                  avatar={
+                    <div
+                      style={{
+                        background: "#1677ff",
+                        width: 32,
+                        height: 32,
+                        borderRadius: "50%",
+                      }}
+                    />
+                  }
                 />
               ) : (
                 <div className={styles.assistantBlock}>
@@ -510,12 +762,28 @@ export default function AgentPanel({
                     <div key={pi} className={styles.phaseCard}>
                       <div className={styles.phaseCardHeader}>
                         <span className={styles.phaseCardIcon}>
-                          {phase.status === "running"
-                            ? <LoadingOutlined spin style={{ color: "#1890ff", fontSize: 14 }} />
-                            : <CheckCircleOutlined style={{ color: "#52c41a", fontSize: 14 }} />}
+                          {phase.status === "running" ? (
+                            <LoadingOutlined
+                              spin
+                              style={{ color: "#1890ff", fontSize: 14 }}
+                            />
+                          ) : (
+                            <CheckCircleOutlined
+                              style={{ color: "#52c41a", fontSize: 14 }}
+                            />
+                          )}
                         </span>
-                        <span className={styles.phaseCardLabel}>{phase.label}</span>
-                        <Tag color={phase.status === "running" ? "processing" : "success"} style={{ fontSize: 10, marginLeft: 8 }}>
+                        <span className={styles.phaseCardLabel}>
+                          {phase.label}
+                        </span>
+                        <Tag
+                          color={
+                            phase.status === "running"
+                              ? "processing"
+                              : "success"
+                          }
+                          style={{ fontSize: 10, marginLeft: 8 }}
+                        >
                           {phase.status === "running" ? "进行中" : "完成"}
                         </Tag>
                       </div>
@@ -524,12 +792,23 @@ export default function AgentPanel({
                         {phase.blocks
                           .filter((b) => b.type === "thought")
                           .map((b, bi) => {
-                            const thought = b as Extract<MsgBlock, { type: "thought" }>;
+                            const thought = b as Extract<
+                              MsgBlock,
+                              { type: "thought" }
+                            >;
                             return (
-                              <details key={bi} className={styles.thoughtSection}>
-                                <summary className={styles.thoughtSummary}>思考内容</summary>
+                              <details
+                                key={bi}
+                                className={styles.thoughtSection}
+                              >
+                                <summary className={styles.thoughtSummary}>
+                                  思考内容
+                                </summary>
                                 <div className={styles.thoughtBody}>
-                                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={xMarkdownComponents}>
+                                  <ReactMarkdown
+                                    remarkPlugins={[remarkGfm]}
+                                    components={xMarkdownComponents}
+                                  >
                                     {thought.lines.join("\n\n")}
                                   </ReactMarkdown>
                                 </div>
@@ -541,23 +820,67 @@ export default function AgentPanel({
                         {phase.blocks
                           .filter((b) => b.type === "tool_call")
                           .map((b, bi) => {
-                            const tc = b as Extract<MsgBlock, { type: "tool_call" }>;
-                            return <ToolCallBlock key={bi} tool={tc.tool} args={tc.args} result={tc.result} success={tc.success} />;
+                            const tc = b as Extract<
+                              MsgBlock,
+                              { type: "tool_call" }
+                            >;
+                            return (
+                              <ToolCallBlock
+                                key={bi}
+                                tool={tc.tool}
+                                args={tc.args}
+                                result={tc.result}
+                                success={tc.success}
+                              />
+                            );
                           })}
 
                         {/* Todo */}
                         {phase.blocks
                           .filter((b) => b.type === "todo")
                           .map((b, bi) => {
-                            const todo = b as Extract<MsgBlock, { type: "todo" }>;
+                            const todo = b as Extract<
+                              MsgBlock,
+                              { type: "todo" }
+                            >;
                             return (
                               <div key={bi} className={styles.todoList}>
                                 {todo.tasks.map((task) => (
-                                  <div key={task.id} className={`${styles.todoItem} ${task.status === "done" ? styles.todoItemDone : task.status === "pending" ? styles.todoItemPending : ""}`}>
+                                  <div
+                                    key={task.id}
+                                    className={`${styles.todoItem} ${
+                                      task.status === "done"
+                                        ? styles.todoItemDone
+                                        : task.status === "pending"
+                                        ? styles.todoItemPending
+                                        : ""
+                                    }`}
+                                  >
                                     <span className={styles.todoCheck}>
-                                      {task.status === "done" ? <CheckCircleOutlined style={{ color: "#52c41a" }} /> : task.status === "running" ? <LoadingOutlined spin style={{ color: "#1890ff" }} /> : <MinusOutlined style={{ color: "#555" }} />}
+                                      {task.status === "done" ? (
+                                        <CheckCircleOutlined
+                                          style={{ color: "#52c41a" }}
+                                        />
+                                      ) : task.status === "running" ? (
+                                        <LoadingOutlined
+                                          spin
+                                          style={{ color: "#1890ff" }}
+                                        />
+                                      ) : (
+                                        <MinusOutlined
+                                          style={{ color: "#555" }}
+                                        />
+                                      )}
                                     </span>
-                                    <span className={`${styles.todoGoal} ${task.status === "done" ? styles.todoGoalDone : ""}`}>{task.goal}</span>
+                                    <span
+                                      className={`${styles.todoGoal} ${
+                                        task.status === "done"
+                                          ? styles.todoGoalDone
+                                          : ""
+                                      }`}
+                                    >
+                                      {task.goal}
+                                    </span>
                                   </div>
                                 ))}
                               </div>
@@ -566,19 +889,33 @@ export default function AgentPanel({
 
                         {/* 文本 / 总结 */}
                         {phase.blocks
-                          .filter((b) => b.type === "text" || b.type === "summary")
+                          .filter(
+                            (b) => b.type === "text" || b.type === "summary"
+                          )
                           .map((b, bi) => {
-                            const text = b as Extract<MsgBlock, { type: "text" | "summary" }>;
-                            const isLast = bi === phase.blocks.filter(b2 => b2.type === "text" || b2.type === "summary").length - 1;
+                            const text = b as Extract<
+                              MsgBlock,
+                              { type: "text" | "summary" }
+                            >;
+                            const textSummaries = phase.blocks.filter(
+                              (b2) =>
+                                b2.type === "text" || b2.type === "summary"
+                            );
+                            const isLast = bi === textSummaries.length - 1;
                             return (
                               <Bubble
                                 key={bi}
                                 placement="start"
                                 content={text.content}
                                 className={styles.assistantBubble}
-                                typing={msg.streaming && isLast ? true : undefined}
+                                typing={
+                                  msg.streaming && isLast ? true : undefined
+                                }
                                 contentRender={(content: string) => (
-                                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={xMarkdownComponents}>
+                                  <ReactMarkdown
+                                    remarkPlugins={[remarkGfm]}
+                                    components={xMarkdownComponents}
+                                  >
                                     {content}
                                   </ReactMarkdown>
                                 )}
@@ -591,7 +928,12 @@ export default function AgentPanel({
 
                   {/* 空状态 loading */}
                   {msg.streaming && msg.phases.length === 0 && (
-                    <Bubble placement="start" loading content="" className={styles.assistantBubble} />
+                    <Bubble
+                      placement="start"
+                      loading
+                      content=""
+                      className={styles.assistantBubble}
+                    />
                   )}
                 </div>
               )}
@@ -625,10 +967,10 @@ export default function AgentPanel({
         <SettingsModal
           open={showSettings}
           currentConfig={modelConfig}
-          onSave={(config) => {
-            setModelConfig(config);
+          onSave={(cfg) => {
+            setModelConfig(cfg);
             setShowSettings(false);
-            checkAgentStatus();
+            void checkAgentStatus();
           }}
           onCancel={() => setShowSettings(false)}
         />

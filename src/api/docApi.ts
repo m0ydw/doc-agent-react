@@ -1,6 +1,7 @@
 import axios from "axios";
+import { config } from "@/config";
 
-const API_BASE_URL = "http://localhost:3000/api/docs";
+const API_BASE_URL = config.docsApiUrl;
 
 export type CollaborationInfo = {
   docId: string;
@@ -102,7 +103,7 @@ export const cleanupDocuments = async (
 
 // ============ doc-operations API ============
 
-const DOC_OPS_BASE_URL = "http://localhost:3000/api/doc-operations";
+const DOC_OPS_BASE_URL = config.docOpsApiUrl;
 
 export type FindResult = {
   success: boolean;

@@ -8,8 +8,9 @@
  */
 
 import { sendAgentMessage as wsSendAgentMessage } from "./wsAgentClient";
+import { config } from "@/config";
 
-const AI_BASE_URL = "http://localhost:3000/api/ai";
+const AI_BASE_URL = config.aiApiUrl;
 
 // ================================================================
 // 结构化事件类型定义

@@ -11,8 +11,9 @@
 
 import ReconnectingWebSocket from "reconnecting-websocket";
 import type { AgentEvent, AgentMode, ModelConfig } from "./aiApi";
+import { config } from "@/config";
 
-const WS_URL = "ws://localhost:3000/ws/agent";
+const WS_URL = config.wsAgentUrl;
 
 // ================================================================
 // WebSocket 消息类型
