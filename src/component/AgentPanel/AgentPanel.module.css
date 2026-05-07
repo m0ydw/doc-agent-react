@@ -1,11 +1,10 @@
 /* ================================================================
- * AgentPanel — 暗色主题 + 卡片布局 + Todo 列表
+ * AgentPanel — Claude Code 风格线性消息 + 行内工具
  * ================================================================ */
 
 .panel { height: 100%; display: flex; flex-direction: column; background: #1a1a2e; border-left: 1px solid #3a3a5a; }
 .header { padding: 10px 12px; border-bottom: 1px solid #2a2a4a; flex-shrink: 0; }
 .messages { flex: 1; overflow-y: auto; padding: 12px; scroll-behavior: smooth; }
-.messageRow { margin-bottom: 16px; }
 .emptyState { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 8px; padding-top: 40%; }
 .collapsedPanel { width: 32px; height: 100%; background: #1a1a2e; border-left: 1px solid #3a3a5a; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .collapsedPanel:hover { background: #222244; }
@@ -13,87 +12,37 @@
 .inputArea { padding: 8px 12px; border-top: 1px solid #2a2a4a; flex-shrink: 0; }
 .userBubble { animation: fadeSlideIn 0.2s ease; }
 
-/* ---- Card ---- */
-.card { background: #1e1e3a; border: 1px solid #2a2a5a; border-radius: 10px; padding: 14px 16px; animation: fadeSlideIn 0.25s ease; }
-.cardStreaming { border-color: #1890ff22; box-shadow: 0 0 12px #1890ff08; }
-.cardLoading { font-size: 12px; color: #888; }
-
-/* ---- 阶段内容 ---- */
-.phaseContent { margin: 8px 0; padding: 8px 12px; background: #1a1a35; border-radius: 6px; border-left: 3px solid #1890ff33; animation: fadeSlideIn 0.2s ease; }
-.phaseContent p, .phaseContent div { margin: 2px 0; color: #d0d0d0; line-height: 1.6; }
-.phaseContent h1, .phaseContent h2, .phaseContent h3 { color: #e8e8e8; }
-.phaseContent ul, .phaseContent ol { padding-left: 18px; }
-.phaseContent li { color: #ccc; }
+/* ---- AgentMessage：无框线性容器 ---- */
+.agentMessage { color: #d0d0d0; line-height: 1.7; }
+.agentMessage p { margin: 4px 0; }
+.assistantBlock { }
 
 /* ---- 思考 ---- */
-.thoughtSection { margin-bottom: 8px; }
-.thoughtSummary { cursor: pointer; font-size: 12px; color: #999; user-select: none; padding: 4px 0; }
-.thoughtSummary:hover { color: #bbb; }
-.thoughtBody { margin-top: 4px; padding-left: 8px; border-left: 2px solid #3a3a5a; color: #ccc; font-size: 12px; }
-.thoughtBody p { color: #ccc; margin: 3px 0; line-height: 1.5; }
-.thoughtBody ul, .thoughtBody ol { padding-left: 18px; color: #ccc; }
-.thoughtBody li { color: #bbb; }
-.thoughtBody strong { color: #ddd; }
+.thoughtSection { margin: 6px 0; }
+.thoughtSummary { cursor: pointer; font-size: 11px; color: #777; user-select: none; padding: 2px 0; }
+.thoughtSummary:hover { color: #999; }
+.thoughtBody { margin-top: 2px; padding-left: 8px; border-left: 2px solid #3a3a5a; color: #999; font-size: 12px; }
+.thoughtBody p { color: #999; margin: 2px 0; line-height: 1.5; }
+.thoughtBody ul, .thoughtBody ol { padding-left: 18px; color: #999; }
+.thoughtBody li { color: #aaa; }
+.thoughtBody strong { color: #bbb; }
 
-/* ---- 内联工具 ---- */
-.toolInline { margin: 6px 0; padding: 8px 10px; border-radius: 6px; background: #1a1a35; border: 1px solid #2a2a55; animation: fadeSlideIn 0.25s ease; transition: border-color 0.3s; }
-.toolInlineRunning { border-color: #1890ff33; }
-.toolInlineDone { border-color: #52c41a22; }
-.toolInlineRow { display: flex; align-items: center; gap: 6px; }
-.toolInlineIcon { font-size: 14px; flex-shrink: 0; }
-.toolInlineArgs { font-size: 12px; color: #aaa; margin-left: 2px; }
-.toolInlineResult { margin-top: 6px; font-size: 12px; color: #52c41a; padding: 4px 8px; background: #52c41a0a; border-radius: 4px; }
-.toolInlineResultError { color: #ff4d4f; background: #ff4d4f0a; }
+/* ---- 行内工具（Claude Code 风格）---- */
+.inlineTool { margin: 4px 0; padding: 2px 0; font-size: 12px; display: flex; align-items: baseline; animation: fadeSlideIn 0.2s ease; }
+.inlineToolRunning { color: #888; }
+.inlineToolDone { color: #aaa; }
+.inlineToolLabel { color: #ccc; }
+.inlineToolArgs { color: #666; margin-left: 4px; }
+.inlineToolResult { color: #888; }
 
-/* ---- Todo 列表 ---- */
-.todoList { margin: 10px 0; padding: 10px 12px; background: #181835; border-radius: 6px; border: 1px solid #2a2a50; }
-.todoItem { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 13px; transition: opacity 0.3s; }
-.todoItemDone { opacity: 0.6; }
-.todoItemRunning { }
-.todoItemPending { opacity: 0.4; }
-.todoCheck { flex-shrink: 0; font-size: 14px; width: 18px; text-align: center; }
-.todoGoal { color: #ccc; }
-.todoGoalDone { text-decoration: line-through; color: #888; }
+/* ---- Todo 紧凑标签 ---- */
+.todoStrip { margin: 8px 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.todoChip { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #2a2a4a; color: #999; }
+.todoChipDone { background: #1a3a1a; color: #52c41a; }
+.todoChipPending { background: #2a2a4a; color: #666; }
 
-/* ---- Card 正文 ---- */
-.cardContent { color: #d0d0d0; line-height: 1.7; }
-.cardContent h1, .cardContent h2, .cardContent h3 { color: #e8e8e8; margin: 12px 0 4px; }
-.cardContent p { margin: 4px 0; }
-.cardContent li { color: #ccc; }
-.cardContent strong { color: #eee; }
-
-/* ---- 阶段卡片（LangGraph Studio 风格）---- */
-.phaseCard {
-  margin-bottom: 12px;
-  background: #181835;
-  border: 1px solid #2a2a50;
-  border-radius: 8px;
-  overflow: hidden;
-  animation: fadeSlideIn 0.3s ease;
-}
-
-.phaseCardHeader {
-  display: flex;
-  align-items: center;
-  padding: 8px 12px;
-  background: #1c1c3a;
-  border-bottom: 1px solid #2a2a50;
-}
-
-.phaseCardIcon {
-  margin-right: 6px;
-  font-size: 14px;
-}
-
-.phaseCardLabel {
-  font-size: 13px;
-  font-weight: 600;
-  color: #ccc;
-}
-
-.phaseCardBody {
-  padding: 8px 12px;
-}
+/* ---- Bubble 正文 ---- */
+.assistantBubble { animation: fadeSlideIn 0.2s ease; }
 
 /* ---- 动画 ---- */
 @keyframes fadeSlideIn {

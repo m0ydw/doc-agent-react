@@ -14,7 +14,7 @@ import type { AgentEvent, AgentMode, ModelConfig } from "@/api/aiApi";
 import { chatReducer, initialChatState, syncMessages } from "./chatReducer";
 import { PHASE_LABELS, agentTheme } from "./phaseConstants";
 import SettingsModal from "./SettingsModal";
-import PhaseCardView from "./PhaseCard";
+import AgentMessage from "./AgentMessage";
 import styles from "./AgentPanel.module.css";
 
 // ================================================================
@@ -211,9 +211,7 @@ export default function AgentPanel({ collapsed, onToggleCollapse, activeDocId }:
                 />
               ) : (
                 <div className={styles.assistantBlock}>
-                  {msg.phases.map((phase, pi) => (
-                    <PhaseCardView key={pi} phase={phase} msg={msg} />
-                  ))}
+                  <AgentMessage msg={msg} isLatest={i === displayMessages.length - 1} />
                   {msg.streaming && msg.phases.length === 0 && (
                     <Bubble placement="start" loading content="" className={styles.assistantBubble} />
                   )}

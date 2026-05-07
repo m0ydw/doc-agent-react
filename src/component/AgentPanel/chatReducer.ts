@@ -5,7 +5,7 @@
  * 这是 React useReducer 的标准模式，与 Redux entityAdapter 通过 id 定位同理。
  */
 
-import type { ChatState, ChatAction, PhaseCard } from "./chatTypes";
+import type { ChatState, ChatAction, PhaseCard, MsgBlock } from "./chatTypes";
 
 // ================================================================
 // 初始状态
@@ -66,15 +66,16 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       if (!activeName) return state;
       const newPhases = state.phases.map((p) => {
         if (p.phase !== activeName) return p;
-        const hasThought = p.blocks.some((b) => b.type === "thought");
-        if (hasThought) {
+        const lastBlock = p.blocks[p.blocks.length - 1];
+        // 如果上一个 block 也是 thought → 追加到它；否则新建一段
+        if (lastBlock?.type === "thought") {
           return {
             ...p,
-            blocks: p.blocks.map((b) => {
-              if (b.type === "thought")
-                return { ...b, lines: [...(b as { lines: string[] }).lines, action.content] };
-              return b;
-            }),
+            blocks: p.blocks.map((b, i) =>
+              i === p.blocks.length - 1
+                ? { ...b, lines: [...(b as { lines: string[] }).lines, action.content] }
+                : b
+            ),
           };
         }
         return { ...p, blocks: [...p.blocks, { type: "thought" as const, lines: [action.content] }] };
@@ -125,10 +126,12 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case "TOOL_START": {
-      const targetName = activeName || state.phases[state.phases.length - 1]?.phase;
-      if (!targetName) return state;
+      // 工具操作仅发生在 execute 阶段，按名称定位而非依赖 activePhaseName
+      // （PHASE_END 可能先于工具事件到达，activePhaseName 已被清空）
+      const toolPhase = state.phases.find((p) => p.phase === "execute");
+      if (!toolPhase) return state;
       const newPhases = state.phases.map((p) => {
-        if (p.phase !== targetName) return p;
+        if (p.phase !== "execute") return p;
         return {
           ...p,
           blocks: [...p.blocks, { type: "tool_call" as const, tool: action.tool, args: action.args, result: "" }],
@@ -138,14 +141,15 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case "TOOL_RESULT": {
-      const targetName = activeName || state.phases[state.phases.length - 1]?.phase;
-      if (!targetName) return state;
+      const toolPhase = state.phases.find((p) => p.phase === "execute");
+      if (!toolPhase) return state;
       const newPhases = state.phases.map((p) => {
-        if (p.phase !== targetName) return p;
+        if (p.phase !== "execute") return p;
         const newBlocks = [...p.blocks];
         for (let i = newBlocks.length - 1; i >= 0; i--) {
-          if (newBlocks[i].type === "tool_call" && (newBlocks[i] as { result: string }).result === "") {
-            newBlocks[i] = { ...newBlocks[i], result: action.content, success: action.success };
+          const block = newBlocks[i]; // const 触发 TypeScript 类型窄化
+          if (block.type === "tool_call" && block.result === "") {
+            newBlocks[i] = { ...block, result: action.content, success: action.success } as MsgBlock;
             break;
           }
         }
