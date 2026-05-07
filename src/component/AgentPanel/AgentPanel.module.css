@@ -29,7 +29,7 @@
 .thoughtSection { margin-bottom: 8px; }
 .thoughtSummary { cursor: pointer; font-size: 12px; color: #999; user-select: none; padding: 4px 0; }
 .thoughtSummary:hover { color: #bbb; }
-.thoughtBody { margin-top: 4px; padding-left: 8px; border-left: 2px solid #3a3a5a; color: #ccc; }
+.thoughtBody { margin-top: 4px; padding-left: 8px; border-left: 2px solid #3a3a5a; color: #ccc; font-size: 12px; }
 .thoughtBody p { color: #ccc; margin: 3px 0; line-height: 1.5; }
 .thoughtBody ul, .thoughtBody ol { padding-left: 18px; color: #ccc; }
 .thoughtBody li { color: #bbb; }

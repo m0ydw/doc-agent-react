@@ -1,37 +1,26 @@
 /**
- * ================================================================
- * SettingsModal — LLM 配置弹窗（预设标签模式）
- * ================================================================
- * 内置预设：智谱、DeepSeek、OpenAI 等。
- * 点击预设标签 → 只需填 API Key → 保存即重新初始化后端 LLM。
- * 支持添加自定义模型预设（存储到 localStorage）。
+ * SettingsModal — LLM 配置弹窗
+ *
+ * 预设管理逻辑委托给 useModelPresets hook，本组件只负责 UI 渲染。
  */
 
 import { useState, useEffect, useCallback } from "react";
 import {
-  Modal, Form, Select, Input, Button, Typography, Space, Divider,
-  Tag, message,
+  Modal,
+  Form,
+  Select,
+  Input,
+  Button,
+  Typography,
+  Space,
+  Divider,
+  Tag,
+  message,
 } from "antd";
 import { KeyOutlined, ApiOutlined, PlusOutlined } from "@ant-design/icons";
-import { setAgentConfig, BUILTIN_PRESETS } from "@/api/aiApi";
-import type { ModelConfig, ModelPreset } from "@/api/aiApi";
-
-const STORAGE_KEY = "docagent_model_presets";
-
-/** 从 localStorage 加载自定义预设 */
-function loadCustomPresets(): ModelPreset[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-/** 保存自定义预设到 localStorage */
-function saveCustomPresets(presets: ModelPreset[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(presets));
-}
+import { setAgentConfig } from "@/api/aiApi";
+import type { ModelConfig } from "@/api/aiApi";
+import { useModelPresets } from "./useModelPresets";
 
 interface SettingsModalProps {
   open: boolean;
@@ -47,31 +36,24 @@ export default function SettingsModal({
   onCancel,
 }: SettingsModalProps) {
   const [form] = Form.useForm();
-
-  // 所有预设（内置 + 自定义）
-  const [allPresets, setAllPresets] = useState<ModelPreset[]>(() => [
-    ...BUILTIN_PRESETS,
-    ...loadCustomPresets(),
-  ]);
-
-  // 当前选中的预设
-  const [selectedPresetId, setSelectedPresetId] = useState<string>(() => {
-    // 尝试匹配 currentConfig 到预设
-    const matched = [...BUILTIN_PRESETS, ...loadCustomPresets()].find(
-      p => p.provider === currentConfig.provider && p.model === currentConfig.model
-    );
-    return matched?.id || BUILTIN_PRESETS[0].id;
-  });
-
   const [saving, setSaving] = useState(false);
 
-  // 添加自定义
-  const [addCustom, setAddCustom] = useState(false);
+  // 预设管理移入 hook
+  const {
+    allPresets,
+    selectedPresetId,
+    setSelectedPresetId,
+    selectedPreset,
+    addCustom,
+    deleteCustom,
+    isBuiltin,
+  } = useModelPresets(currentConfig);
+
+  // 添加自定义表单
+  const [addCustomOpen, setAddCustomOpen] = useState(false);
   const [customLabel, setCustomLabel] = useState("");
   const [customProvider, setCustomProvider] = useState("deepseek");
   const [customModel, setCustomModel] = useState("");
-
-  const selectedPreset = allPresets.find(p => p.id === selectedPresetId);
 
   // 当预设变化时重置表单
   useEffect(() => {
@@ -100,7 +82,6 @@ export default function SettingsModal({
       modelKwargs: selectedPreset.modelKwargs,
     };
 
-    // 触发后端立即重新初始化
     const ok = await setAgentConfig(config);
     if (ok) {
       message.success(`已切换至 ${selectedPreset.label}`);
@@ -113,34 +94,12 @@ export default function SettingsModal({
 
   const handleAddCustom = useCallback(() => {
     if (!customLabel.trim() || !customProvider) return;
-    const id = "custom-" + Date.now();
-    const preset: ModelPreset = {
-      id,
-      label: customLabel.trim(),
-      provider: customProvider,
-      model: customModel.trim() || undefined,
-    };
-    const newPresets = [...allPresets, preset];
-    setAllPresets(newPresets);
-    saveCustomPresets(newPresets.filter(p => p.id.startsWith("custom-")));
-    setSelectedPresetId(id);
-    setAddCustom(false);
+    addCustom(customLabel, customProvider, customModel);
+    setAddCustomOpen(false);
     setCustomLabel("");
     setCustomModel("");
     message.success("自定义模型已添加");
-  }, [customLabel, customProvider, customModel, allPresets]);
-
-  const handleDeleteCustom = useCallback((id: string) => {
-    const newPresets = allPresets.filter(p => p.id !== id);
-    setAllPresets(newPresets);
-    saveCustomPresets(newPresets.filter(p => p.id.startsWith("custom-")));
-    if (selectedPresetId === id) {
-      setSelectedPresetId(BUILTIN_PRESETS[0].id);
-    }
-    message.success("已删除");
-  }, [allPresets, selectedPresetId]);
-
-  const isBuiltin = (id: string) => BUILTIN_PRESETS.some(p => p.id === id);
+  }, [customLabel, customProvider, customModel, addCustom]);
 
   return (
     <Modal
@@ -157,52 +116,65 @@ export default function SettingsModal({
       cancelText="取消"
       confirmLoading={saving}
       width={480}
-      destroyOnClose
     >
       {/* 预设标签 */}
       <div style={{ marginBottom: 16 }}>
-        <Typography.Text type="secondary" style={{ fontSize: 11, display: "block", marginBottom: 8 }}>
+        <Typography.Text
+          type="secondary"
+          style={{ fontSize: 11, display: "block", marginBottom: 8 }}
+        >
           选择模型预设，填写 API Key，保存后立即生效
         </Typography.Text>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {allPresets.map(p => (
+          {allPresets.map((p) => (
             <Tag
               key={p.id}
               color={selectedPresetId === p.id ? "blue" : "default"}
               style={{ cursor: "pointer", fontSize: 12, padding: "2px 8px" }}
               onClick={() => setSelectedPresetId(p.id)}
               closable={!isBuiltin(p.id)}
-              onClose={(e) => { e.preventDefault(); handleDeleteCustom(p.id); }}
+              onClose={(e) => {
+                e.preventDefault();
+                deleteCustom(p.id);
+                message.success("已删除");
+              }}
             >
               {p.label}
             </Tag>
           ))}
-          {!addCustom ? (
+          {!addCustomOpen && (
             <Tag
               icon={<PlusOutlined />}
               style={{ cursor: "pointer", fontSize: 12, borderStyle: "dashed" }}
-              onClick={() => setAddCustom(true)}
+              onClick={() => setAddCustomOpen(true)}
             >
               添加自定义
             </Tag>
-          ) : null}
+          )}
         </div>
       </div>
 
       {/* 添加自定义表单 */}
-      {addCustom && (
-        <div style={{ background: "#f5f5f5", padding: 12, borderRadius: 6, marginBottom: 12 }}>
+      {addCustomOpen && (
+        <div
+          style={{
+            background: "#f5f5f5",
+            padding: 12,
+            borderRadius: 6,
+            marginBottom: 12,
+          }}
+        >
           <Space direction="vertical" style={{ width: "100%" }} size="small">
             <Input
               size="small"
               placeholder="标签名，如 DeepSeek V4"
               value={customLabel}
-              onChange={e => setCustomLabel(e.target.value)}
+              onChange={(e) => setCustomLabel(e.target.value)}
             />
             <Select
               size="small"
               value={customProvider}
-              onChange={v => setCustomProvider(v)}
+              onChange={(v) => setCustomProvider(v)}
               style={{ width: "100%" }}
               options={[
                 { value: "deepseek", label: "DeepSeek" },
@@ -214,7 +186,7 @@ export default function SettingsModal({
               size="small"
               placeholder="模型名，如 deepseek-v4-flash（可选）"
               value={customModel}
-              onChange={e => setCustomModel(e.target.value)}
+              onChange={(e) => setCustomModel(e.target.value)}
             />
             <Button type="primary" size="small" block onClick={handleAddCustom}>
               添加
@@ -231,8 +203,12 @@ export default function SettingsModal({
           <Typography.Text strong style={{ fontSize: 13 }}>
             {selectedPreset.label}
           </Typography.Text>
-          <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
-            ({selectedPreset.provider}{selectedPreset.model ? ` / ${selectedPreset.model}` : ""})
+          <Typography.Text
+            type="secondary"
+            style={{ fontSize: 11, marginLeft: 8 }}
+          >
+            ({selectedPreset.provider}
+            {selectedPreset.model ? ` / ${selectedPreset.model}` : ""})
           </Typography.Text>
 
           <Form form={form} layout="vertical" style={{ marginTop: 12 }}>
