@@ -9,6 +9,7 @@ import type { ConfigProvider } from "antd";
 export const PHASE_LABELS: Record<string, string> = {
   analyze: "需求分析",
   plan: "任务规划",
+  validate_plan: "校验计划",
   execute: "文档处理",
   generate: "内容生成",
   validate: "结果验证",
